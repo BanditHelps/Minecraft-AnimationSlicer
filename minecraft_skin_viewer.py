@@ -4,6 +4,7 @@ from tkinter import Canvas
 from PIL import Image, ImageTk
 import numpy as np
 import customtkinter as ctk
+from skin_mapping_config import SKIN_UV_MAPPING
 
 class MinecraftSkinViewer:
     def __init__(self, parent, width=400, height=400):
@@ -319,131 +320,34 @@ class MinecraftSkinViewer:
         if self.skin_pixels is None:
             return "#8B4513"  # Default brown color
         
-        # UV mapping for different body parts (Minecraft skin layout)
-        uv_maps = {
-            # Head inner layer
-            'head_front': (8, 8, 16, 16),
-            'head_back': (24, 8, 32, 16),
-            'head_top': (8, 0, 16, 8),
-            'head_bottom': (16, 0, 24, 8),
-            'head_left': (0, 8, 8, 16),
-            'head_right': (16, 8, 24, 16),
-            # Head outer layer (hat)
-            'head_outer_front': (40, 8, 48, 16),
-            'head_outer_back': (56, 8, 64, 16),
-            'head_outer_top': (40, 0, 48, 8),
-            'head_outer_bottom': (48, 0, 56, 8),
-            'head_outer_left': (32, 8, 40, 16),
-            'head_outer_right': (48, 8, 56, 16),
-            # Body inner layer
-            'body_front': (20, 20, 28, 32),
-            'body_back': (32, 20, 40, 32),
-            'body_top': (20, 16, 28, 20),
-            'body_bottom': (28, 16, 36, 20),
-            'body_left': (16, 20, 20, 32),
-            'body_right': (28, 20, 32, 32),
-            # Body outer layer (jacket)
-            'body_outer_front': (20, 36, 28, 48),
-            'body_outer_back': (32, 36, 40, 48),
-            'body_outer_top': (20, 32, 28, 36),
-            'body_outer_bottom': (28, 32, 36, 36),
-            'body_outer_left': (16, 36, 20, 48),
-            'body_outer_right': (28, 36, 32, 48),
-            # Left arm
-            'left_arm_front': (44, 20, 48, 32),
-            'left_arm_back': (52, 20, 56, 32),
-            'left_arm_top': (44, 16, 48, 20),
-            'left_arm_bottom': (48, 16, 52, 20),
-            'left_arm_left': (40, 20, 44, 32),
-            'left_arm_right': (48, 20, 52, 32),
-            # Right arm  
-            'right_arm_front': (36, 52, 40, 64),
-            'right_arm_back': (44, 52, 48, 64),
-            'right_arm_top': (36, 48, 40, 52),
-            'right_arm_bottom': (40, 48, 44, 52),
-            'right_arm_left': (32, 52, 36, 64),
-            'right_arm_right': (40, 52, 44, 64),
-            # Left leg
-            'left_leg_front': (4, 20, 8, 32),
-            'left_leg_back': (12, 20, 16, 32),
-            'left_leg_top': (4, 16, 8, 20),
-            'left_leg_bottom': (8, 16, 12, 20),
-            'left_leg_left': (0, 20, 4, 32),
-            'left_leg_right': (8, 20, 12, 32),
-            # Right leg
-            'right_leg_front': (20, 52, 24, 64),
-            'right_leg_back': (28, 52, 32, 64),
-            'right_leg_top': (20, 48, 24, 52),
-            'right_leg_bottom': (24, 48, 28, 52),
-            'right_leg_left': (16, 52, 20, 64),
-            'right_leg_right': (24, 52, 28, 64),
-        }
-        
-        if part in uv_maps:
-            x1, y1, x2, y2 = uv_maps[part]
+        if part in SKIN_UV_MAPPING:
+            x1, y1, x2, y2 = SKIN_UV_MAPPING[part]
             
-            # Calculate average color from the face region for better representation
-            total_r, total_g, total_b = 0.0, 0.0, 0.0
-            valid_pixels = 0
+            # Convert UV coordinates (0-1) to texture coordinates
+            # Flip V coordinate to fix upside-down textures
+            tx = int(x1 + u * (x2 - x1))
+            ty = int(y1 + (1 - v) * (y2 - y1))
             
-            # Sample a few pixels from the region
-            for sample_u in [0.25, 0.5, 0.75]:
-                for sample_v in [0.25, 0.5, 0.75]:
-                    tx = int(x1 + sample_u * (x2 - x1))
-                    ty = int(y1 + sample_v * (y2 - y1))
-                    # Clamp to texture bounds
-                    tx = max(0, min(63, tx))
-                    ty = max(0, min(63, ty))
-                    
-                    r, g, b, a = self.skin_pixels[ty, tx]
-                    if a > 0:  # Only count non-transparent pixels
-                        total_r += float(r)
-                        total_g += float(g)
-                        total_b += float(b)
-                        valid_pixels += 1
+            # Clamp to texture bounds
+            tx = max(0, min(63, tx))
+            ty = max(0, min(63, ty))
             
-            if valid_pixels > 0:
-                avg_r = int(total_r / valid_pixels)
-                avg_g = int(total_g / valid_pixels)
-                avg_b = int(total_b / valid_pixels)
-                return f"#{avg_r:02x}{avg_g:02x}{avg_b:02x}"
-            else:
-                # Fallback to center pixel
-                tx = int(x1 + 0.5 * (x2 - x1))
-                ty = int(y1 + 0.5 * (y2 - y1))
-                tx = max(0, min(63, tx))
-                ty = max(0, min(63, ty))
-                
-                r, g, b, a = self.skin_pixels[ty, tx]
-                return f"#{r:02x}{g:02x}{b:02x}"
+            r, g, b, a = self.skin_pixels[ty, tx]
+            return f"#{r:02x}{g:02x}{b:02x}"
         
         return "#8B4513"  # Default brown
+    
+    def get_uv_mapping(self, part):
+        """Get UV mapping coordinates for a given part"""
+        return SKIN_UV_MAPPING.get(part, (0, 0, 8, 8))
     
     def has_visible_texture(self, part):
         """Check if a texture region has any non-transparent pixels"""
         if self.skin_pixels is None:
             return False
         
-        # UV mapping for different body parts (Minecraft skin layout)
-        uv_maps = {
-            # Head outer layer (hat)
-            'head_outer_front': (40, 8, 48, 16),
-            'head_outer_back': (56, 8, 64, 16),
-            'head_outer_top': (40, 0, 48, 8),
-            'head_outer_bottom': (48, 0, 56, 8),
-            'head_outer_left': (32, 8, 40, 16),
-            'head_outer_right': (48, 8, 56, 16),
-            # Body outer layer (jacket)
-            'body_outer_front': (20, 36, 28, 48),
-            'body_outer_back': (32, 36, 40, 48),
-            'body_outer_top': (20, 32, 28, 36),
-            'body_outer_bottom': (28, 32, 36, 36),
-            'body_outer_left': (16, 36, 20, 48),
-            'body_outer_right': (28, 36, 32, 48),
-        }
-        
-        if part in uv_maps:
-            x1, y1, x2, y2 = uv_maps[part]
+        if part in SKIN_UV_MAPPING:
+            x1, y1, x2, y2 = SKIN_UV_MAPPING[part]
             # Check if any pixel in the region is non-transparent
             for y in range(y1, min(y2, 64)):
                 for x in range(x1, min(x2, 64)):
@@ -509,6 +413,96 @@ class MinecraftSkinViewer:
                 points.extend([x, y])
             self.canvas.create_polygon(points, fill=color, outline="black", width=1)
     
+    def draw_textured_face(self, vertices, face_indices, part_name, face_name, z_depth):
+        """Draw a textured face by subdividing it into a grid of small polygons"""
+        if self.skin_pixels is None:
+            # Fallback to simple colored face
+            color = self.get_texture_color(0.5, 0.5, f"{part_name}_{face_name}")
+            projected = []
+            for i in face_indices:
+                x, y, z = self.project_3d_to_2d(vertices[i])
+                projected.append((x, y))
+            
+            if len(projected) >= 3:
+                points = []
+                for x, y in projected:
+                    points.extend([x, y])
+                self.canvas.create_polygon(points, fill=color, outline="black", width=1)
+            return
+
+        # Project the 4 corners of the face
+        projected_corners = []
+        for i in face_indices:
+            x, y, z = self.project_3d_to_2d(vertices[i])
+            projected_corners.append((x, y))
+        
+        if len(projected_corners) != 4:
+            return
+        
+        # Get texture region for this face
+        face_key = f"{part_name}_{face_name}"
+        x1, y1, x2, y2 = self.get_uv_mapping(face_key)
+        tex_width = x2 - x1
+        tex_height = y2 - y1
+        
+        # Determine grid resolution based on the projected face size
+        # Calculate approximate face size in pixels
+        min_x = min(x for x, y in projected_corners)
+        max_x = max(x for x, y in projected_corners)
+        min_y = min(y for x, y in projected_corners)
+        max_y = max(y for x, y in projected_corners)
+        
+        face_width = max_x - min_x
+        face_height = max_y - min_y
+        
+        # Determine grid resolution (balance between quality and performance)
+        grid_res_x = max(2, min(tex_width, int(face_width / 4)))
+        grid_res_y = max(2, min(tex_height, int(face_height / 4)))
+        
+        # Draw the face as a grid of small quads
+        for grid_y in range(grid_res_y):
+            for grid_x in range(grid_res_x):
+                # Calculate UV coordinates for this grid cell
+                u1 = grid_x / grid_res_x
+                u2 = (grid_x + 1) / grid_res_x
+                v1 = grid_y / grid_res_y
+                v2 = (grid_y + 1) / grid_res_y
+                
+                # Interpolate 3D positions for the quad corners
+                # Using bilinear interpolation on the face
+                def lerp_2d(u, v):
+                    # Bilinear interpolation between the 4 projected corners
+                    # Corners are assumed to be in order: bottom-left, bottom-right, top-right, top-left
+                    x_bottom = projected_corners[0][0] * (1-u) + projected_corners[1][0] * u
+                    x_top = projected_corners[3][0] * (1-u) + projected_corners[2][0] * u
+                    y_bottom = projected_corners[0][1] * (1-u) + projected_corners[1][1] * u
+                    y_top = projected_corners[3][1] * (1-u) + projected_corners[2][1] * u
+                    
+                    x = x_bottom * (1-v) + x_top * v
+                    y = y_bottom * (1-v) + y_top * v
+                    return x, y
+                
+                # Get the 4 corners of this grid cell
+                quad_corners = [
+                    lerp_2d(u1, v1),  # bottom-left
+                    lerp_2d(u2, v1),  # bottom-right  
+                    lerp_2d(u2, v2),  # top-right
+                    lerp_2d(u1, v2),  # top-left
+                ]
+                
+                # Get color from texture (sample at center of grid cell)
+                center_u = (u1 + u2) / 2
+                center_v = (v1 + v2) / 2
+                color = self.get_texture_color(center_u, center_v, face_key)
+                
+                # Draw the quad
+                points = []
+                for x, y in quad_corners:
+                    points.extend([x, y])
+                
+                if len(points) >= 6:  # At least 3 points for a polygon
+                    self.canvas.create_polygon(points, fill=color, outline="", width=0)
+    
     def render(self):
         """Render the 3D model"""
         self.canvas.delete("all")
@@ -560,13 +554,7 @@ class MinecraftSkinViewer:
         
         # Draw faces in correct order
         for z_depth, vertices, face_indices, part_name, face_name, projected_face in faces_to_draw:
-            color = self.get_texture_color(0.5, 0.5, f"{part_name}_{face_name}")
-            
-            if len(projected_face) >= 3:
-                points = []
-                for x, y in projected_face:
-                    points.extend([x, y])
-                self.canvas.create_polygon(points, fill=color, outline="black", width=1)
+            self.draw_textured_face(vertices, face_indices, part_name, face_name, z_depth)
     
     def on_mouse_press(self, event):
         """Handle mouse press events"""
