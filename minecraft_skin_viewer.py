@@ -333,6 +333,11 @@ class MinecraftSkinViewer:
             ty = max(0, min(63, ty))
             
             r, g, b, a = self.skin_pixels[ty, tx]
+            
+            # Handle transparent pixels - return None to indicate they shouldn't be drawn
+            if a < 128:  # Mostly transparent
+                return None
+            
             return f"#{r:02x}{g:02x}{b:02x}"
         
         return "#8B4513"  # Default brown
@@ -418,6 +423,9 @@ class MinecraftSkinViewer:
         if self.skin_pixels is None:
             # Fallback to simple colored face
             color = self.get_texture_color(0.5, 0.5, f"{part_name}_{face_name}")
+            if color is None:  # Skip transparent faces
+                return
+                
             projected = []
             for i in face_indices:
                 x, y, z = self.project_3d_to_2d(vertices[i])
@@ -427,7 +435,8 @@ class MinecraftSkinViewer:
                 points = []
                 for x, y in projected:
                     points.extend([x, y])
-                self.canvas.create_polygon(points, fill=color, outline="black", width=1)
+                # Draw solid polygon
+                self.canvas.create_polygon(points, fill=color, outline="", width=0)
             return
 
         # Project the 4 corners of the face
@@ -495,12 +504,17 @@ class MinecraftSkinViewer:
                 center_v = (v1 + v2) / 2
                 color = self.get_texture_color(center_u, center_v, face_key)
                 
+                # Skip transparent pixels
+                if color is None:
+                    continue
+                
                 # Draw the quad
                 points = []
                 for x, y in quad_corners:
                     points.extend([x, y])
                 
                 if len(points) >= 6:  # At least 3 points for a polygon
+                    # Draw solid polygon
                     self.canvas.create_polygon(points, fill=color, outline="", width=0)
     
     def render(self):
@@ -537,20 +551,81 @@ class MinecraftSkinViewer:
                 if part_name.endswith("_outer") and not self.has_visible_texture(face_key):
                     continue
                 
-                # Calculate average Z depth for this face
-                z_avg = 0
+                # Calculate actual distance from camera for proper depth sorting
+                face_center = [0, 0, 0]
                 projected_face = []
-                for vertex_idx in face_indices:
-                    x, y, z = self.project_3d_to_2d(vertices[vertex_idx])
-                    projected_face.append((x, y))
-                    z_avg += z
-                z_avg /= len(face_indices)
                 
-                if z_avg < 0:  # Only add faces facing the camera
-                    faces_to_draw.append((z_avg, vertices, face_indices, part_name, face_names[i], projected_face))
+                # Calculate face center in 3D space
+                for vertex_idx in face_indices:
+                    vertex = vertices[vertex_idx]
+                    face_center[0] += vertex[0]
+                    face_center[1] += vertex[1] 
+                    face_center[2] += vertex[2]
+                    
+                    x, y, z = self.project_3d_to_2d(vertex)
+                    projected_face.append((x, y))
+                
+                # Get average position of face
+                face_center = [coord / len(face_indices) for coord in face_center]
+                
+                # Apply same transformations as in projection to get world space position
+                x, y, z = face_center
+                
+                # Rotation around Y axis
+                cos_y = math.cos(self.rotation_y)
+                sin_y = math.sin(self.rotation_y)
+                x_rot = x * cos_y - z * sin_y
+                z_rot = x * sin_y + z * cos_y
+                
+                # Rotation around X axis  
+                cos_x = math.cos(self.rotation_x)
+                sin_x = math.sin(self.rotation_x)
+                y_rot = y * cos_x - z_rot * sin_x
+                z_final = y * sin_x + z_rot * cos_x
+                
+                # Use Z-depth for sorting - farther negative values are farther from camera
+                camera_distance = z_final
+                
+                # Add small offset for outer layers to render in front of their inner counterparts
+                # This prevents z-fighting between inner and outer layers of the same body part
+                if part_name.endswith('_outer'):
+                    camera_distance += 0.01  # Small offset to put outer layers slightly closer to camera
+                
+                # Proper back-face culling using face normal
+                if len(face_indices) >= 3:
+                    # Calculate face normal for proper culling
+                    v1 = vertices[face_indices[0]]
+                    v2 = vertices[face_indices[1]]
+                    v3 = vertices[face_indices[2]]
+                    
+                    # Cross product to get normal (in original model space)
+                    edge1 = [v2[i] - v1[i] for i in range(3)]
+                    edge2 = [v3[i] - v1[i] for i in range(3)]
+                    normal = [
+                        edge1[1] * edge2[2] - edge1[2] * edge2[1],
+                        edge1[2] * edge2[0] - edge1[0] * edge2[2],
+                        edge1[0] * edge2[1] - edge1[1] * edge2[0]
+                    ]
+                    
+                    # Apply same rotations to normal as we do to vertices
+                    cos_y = math.cos(self.rotation_y)
+                    sin_y = math.sin(self.rotation_y)
+                    nx_rot = normal[0] * cos_y - normal[2] * sin_y
+                    nz_rot = normal[0] * sin_y + normal[2] * cos_y
+                    
+                    cos_x = math.cos(self.rotation_x)
+                    sin_x = math.sin(self.rotation_x)
+                    ny_rot = normal[1] * cos_x - nz_rot * sin_x
+                    nz_final = normal[1] * sin_x + nz_rot * cos_x
+                    
+                    # Only render faces facing towards camera
+                    # For outward-facing normals, we want nz_final < 0 (pointing away from camera)
+                    if nz_final < 0:
+                        faces_to_draw.append((camera_distance, vertices, face_indices, part_name, face_names[i], projected_face))
         
-        # Sort faces by Z-depth (back to front)
-        faces_to_draw.sort(key=lambda x: x[0])
+        # Sort faces by camera distance (far to near for painter's algorithm)
+        # Higher Z values are farther from camera, lower Z values are closer
+        faces_to_draw.sort(key=lambda x: x[0], reverse=True)
         
         # Draw faces in correct order
         for z_depth, vertices, face_indices, part_name, face_name, projected_face in faces_to_draw:
@@ -602,4 +677,69 @@ class MinecraftSkinViewer:
         
         # Clamp scale to reasonable bounds
         self.scale = max(2, min(300, self.scale))
-        self.render() 
+        self.render()
+    
+
+    
+    def force_render_refresh(self):
+        """Force a complete render refresh - useful for CustomTkinter context"""
+        # Clear canvas completely
+        self.canvas.delete("all")
+        # Update canvas to ensure it's ready
+        self.canvas.update_idletasks()
+        # Re-render
+        self.render()
+        
+    def debug_depth_sorting(self):
+        """Debug function to print depth sorting information"""
+        if not hasattr(self, '_debug_enabled'):
+            return
+            
+        print(f"\n--- Debug Depth Sorting ---")
+        print(f"Camera rotation: X={self.rotation_x:.2f}, Y={self.rotation_y:.2f}")
+        
+        # Quick check of face positions
+        model_parts = [
+            (self.head_vertices, "head"),
+            (self.body_vertices, "body"), 
+            (self.left_leg_vertices, "left_leg"),
+            (self.right_leg_vertices, "right_leg")
+        ]
+        
+        for vertices, part_name in model_parts:
+            # Get first face (front face)
+            face_indices = [0, 1, 2, 3]  
+            face_center = [0, 0, 0]
+            
+            for vertex_idx in face_indices:
+                vertex = vertices[vertex_idx]
+                face_center[0] += vertex[0]
+                face_center[1] += vertex[1] 
+                face_center[2] += vertex[2]
+            
+            face_center = [coord / len(face_indices) for coord in face_center]
+            x, y, z = face_center
+            
+            # Apply same transformations as in render
+            cos_y = math.cos(self.rotation_y)
+            sin_y = math.sin(self.rotation_y)
+            x_rot = x * cos_y - z * sin_y
+            z_rot = x * sin_y + z * cos_y
+            
+            cos_x = math.cos(self.rotation_x)
+            sin_x = math.sin(self.rotation_x)
+            y_rot = y * cos_x - z_rot * sin_x
+            z_final = y * sin_x + z_rot * cos_x
+            
+            # Apply same logic as in render
+            camera_distance = z_final
+                
+            print(f"{part_name}: z_final={z_final:.2f}, distance={camera_distance:.2f}")
+    
+    def enable_debug(self):
+        """Enable debug output"""
+        self._debug_enabled = True
+        
+    def disable_debug(self):
+        """Disable debug output"""
+        self._debug_enabled = False 

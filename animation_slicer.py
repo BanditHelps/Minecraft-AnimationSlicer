@@ -68,6 +68,9 @@ class MinecraftSkinAnimator:
         
         # Setup 3D Skin Preview tab
         self.setup_skin_preview_tab()
+        
+        # Note: CustomTkinter doesn't support tab change binding like standard Tkinter
+        # We'll handle refreshing through other means (manual refresh on skin loading)
     
     def setup_animation_tab(self):
         
@@ -221,6 +224,10 @@ class MinecraftSkinAnimator:
         
         # Initialize animation variables
         self.animation_frames = []
+        self.animation_images = []
+        self.current_frame = 0
+        self.is_playing = False
+        self.play_timer = None
     
     def setup_skin_preview_tab(self):
         """Setup the 3D skin preview tab"""
@@ -288,25 +295,60 @@ class MinecraftSkinAnimator:
         
         # Create 3D viewer
         try:
+            print("Initializing 3D Skin Viewer...")  # Debug print
             self.skin_viewer = MinecraftSkinViewer(viewer_frame, width=500, height=500)
+            print("3D Skin Viewer initialized successfully!")  # Debug print
             
-            # Load test skin by default
-            if os.path.exists("BanditSkin.png"):
-                self.skin_viewer.load_skin("BanditSkin.png")
-                self.skin_file_path_var.set("BanditSkin.png")
+            # Give the viewer a moment to initialize properly
+            self.root.after(100, self._load_initial_skin)
+                        
         except Exception as e:
             # Fallback if 3D viewer fails
+            print(f"3D Viewer initialization error: {e}")
+            import traceback
+            traceback.print_exc()  # Print full traceback for debugging
             error_label = ctk.CTkLabel(
                 viewer_frame,
-                text=f"3D Viewer Error:\n{str(e)}\n\nPlease check that numpy is installed:\npip install numpy",
+                text=f"3D Viewer Error:\n{str(e)}\n\nPlease check that all dependencies are installed:\npip install numpy pillow customtkinter",
                 font=ctk.CTkFont(size=14),
                 text_color="red"
             )
             error_label.pack(expand=True)
-        self.animation_images = []
-        self.current_frame = 0
-        self.is_playing = False
-        self.play_timer = None
+            self.skin_viewer = None
+    
+    def _load_initial_skin(self):
+        """Load initial test skin after viewer is fully initialized"""
+        if hasattr(self, 'skin_viewer') and self.skin_viewer is not None:
+            # Create a test skin if none exists, just like in the working test
+            test_skin_files = ["BanditSkin.png", "test_skin.png"]
+            skin_loaded = False
+            
+            for test_file in test_skin_files:
+                if os.path.exists(test_file):
+                    success = self.skin_viewer.load_skin(test_file)
+                    if success:
+                        self.skin_file_path_var.set(test_file)
+                        print(f"Loaded initial skin: {test_file}")
+                        skin_loaded = True
+                        break
+            
+            # If no test skin found, create one using the same method as the working test
+            if not skin_loaded:
+                try:
+                    from skin_viewer_test import create_sample_skin
+                    created_skin = create_sample_skin()
+                    success = self.skin_viewer.load_skin(created_skin)
+                    if success:
+                        self.skin_file_path_var.set(created_skin)
+                        print(f"Created and loaded test skin: {created_skin}")
+                        skin_loaded = True
+                except Exception as e:
+                    print(f"Failed to create test skin: {e}")
+            
+            # Force multiple refreshes to ensure proper initialization - same as working test
+            if skin_loaded:
+                self.root.after(50, self.skin_viewer.force_render_refresh)
+                self.root.after(200, self.skin_viewer.force_render_refresh)
         
         # Bind window resize event to refresh previews
         self.root.bind("<Configure>", self.on_window_resize)
@@ -338,24 +380,42 @@ class MinecraftSkinAnimator:
         
         if filename:
             self.skin_file_path_var.set(filename)
-            if hasattr(self, 'skin_viewer'):
+            if hasattr(self, 'skin_viewer') and self.skin_viewer is not None:
                 success = self.skin_viewer.load_skin(filename)
-                if not success:
+                if success:
+                    # Force multiple refreshes like the working test
+                    self.root.after(50, self.skin_viewer.force_render_refresh)
+                    self.root.after(200, self.skin_viewer.force_render_refresh)
+                else:
                     messagebox.showerror("Error", "Failed to load skin file. Please make sure it's a valid PNG image.")
+            else:
+                messagebox.showwarning("Warning", "3D Skin Viewer is not available. Please check the console for errors.")
     
     def load_test_skin(self):
-        """Load the test skin (BanditSkin.png)"""
-        test_skin_path = "BanditSkin.png"
-        if os.path.exists(test_skin_path):
-            self.skin_file_path_var.set(test_skin_path)
-            if hasattr(self, 'skin_viewer'):
-                success = self.skin_viewer.load_skin(test_skin_path)
-                if not success:
-                    messagebox.showerror("Error", "Failed to load test skin file.")
+        """Load the test skin - same logic as working skin_viewer_test.py"""
+        if not hasattr(self, 'skin_viewer') or self.skin_viewer is None:
+            messagebox.showwarning("Warning", "3D Skin Viewer is not available. Please check the console for errors.")
+            return
+        
+        # Try to create and load test skin - same as working test
+        try:
+            from skin_viewer_test import create_sample_skin
+            skin_path = create_sample_skin()
+            
+            success = self.skin_viewer.load_skin(skin_path)
+            if success:
+                self.skin_file_path_var.set(skin_path)
+                messagebox.showinfo("Success", f"Loaded test skin: {skin_path}")
+                # Force multiple refreshes like the working test  
+                self.root.after(50, self.skin_viewer.force_render_refresh)
+                self.root.after(200, self.skin_viewer.force_render_refresh)
             else:
-                messagebox.showinfo("Info", "Test skin loaded. Please check the 3D viewer.")
-        else:
-            messagebox.showerror("Error", "BanditSkin.png not found in the current directory.")
+                messagebox.showerror("Error", "Failed to load test skin")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to create/load test skin: {str(e)}")
+            import traceback
+            traceback.print_exc()
             
     def load_preview(self):
         try:
