@@ -5,6 +5,7 @@ A beautiful Python GUI application for generating progressive alpha mask animati
 ## ✨ Features
 
 - **Modern Dark UI**: Beautiful, responsive interface built with CustomTkinter
+- **🎮 3D Skin Preview**: Interactive 3D Minecraft character model with real-time skin rendering
 - **Real-time Preview**: See your Minecraft skin before processing
 - **Multiple Animation Types**: 
   - Bottom to Head (feet to head reveal)
@@ -18,6 +19,10 @@ A beautiful Python GUI application for generating progressive alpha mask animati
 - **In-App Animation Viewer**: Preview your generated animations with a scrub slider
 - **Frame 0 Support**: Automatically generates a blank starting frame
 - **Smart Naming**: Files named with original filename + frame number
+- **Interactive 3D Controls**: 
+  - Mouse drag to rotate the 3D model
+  - Mouse wheel to zoom in/out
+  - Real-time texture mapping from skin files
 
 ## 🚀 Installation
 
@@ -38,11 +43,30 @@ A beautiful Python GUI application for generating progressive alpha mask animati
 - Python 3.7+
 - Pillow (PIL) 10.0.0+
 - customtkinter 5.2.0+
+- numpy 1.21.0+ (for 3D rendering)
 - tkinter (usually comes with Python)
 
 ## 🎯 How to Use
 
+### 🎮 3D Skin Preview
+
 1. **Launch the application** by running `python animation_slicer.py`
+
+2. **Navigate to the "3D Skin Preview" tab**
+
+3. **Load a Minecraft skin:**
+   - Click "📁 Browse Skin" to select your own skin file
+   - Or click "🎮 Load Test Skin (BanditSkin.png)" to use the included test skin
+   - The 3D model will update with your skin texture
+
+4. **Interact with the 3D model:**
+   - **Left click + drag**: Rotate the model in 3D space
+   - **Mouse wheel**: Zoom in and out
+   - The model shows how your skin looks on an actual Minecraft character
+
+### 🎬 Animation Generator
+
+1. **Navigate to the "Animation Generator" tab**
 
 2. **Select a Minecraft skin file:**
    - Click the "📁 Browse" button
@@ -111,6 +135,13 @@ The application works with standard Minecraft skin files:
 3. **Progressively reveal** sections based on animation type
 4. **Save** each frame as a numbered PNG file
 
+### 3D Preview System
+- **3D Model**: Accurate Minecraft player model with proper proportions
+- **UV Mapping**: Correct mapping of skin textures to 3D geometry
+- **Real-time Rendering**: Smooth 60fps canvas-based 3D rendering
+- **Texture Sampling**: Smart color averaging for better visual quality
+- **Cross-platform Input**: Mouse and wheel support for Windows, Mac, and Linux
+
 ### Performance
 - Multithreaded processing to keep UI responsive
 - Efficient pixel manipulation using PIL
@@ -160,10 +191,13 @@ frame_path = output_dir / f"frame_{i+1:04d}.png"  # 4-digit padding
 ## 🎬 Use Cases
 
 - **Game Development**: Create smooth player reveal animations
-- **Video Production**: Generate mask sequences for video editing
+- **Video Production**: Generate mask sequences for video editing  
 - **UI Design**: Create progressive loading animations
 - **Educational Content**: Demonstrate skin structure and layers
 - **Art Projects**: Generate stylized animation sequences
+- **Skin Design**: Preview how your custom skins look on a 3D Minecraft character
+- **Content Creation**: Test and showcase skin designs before uploading
+- **Skin Validation**: Ensure your skin textures map correctly to the character model
 
 ## 📝 License
 

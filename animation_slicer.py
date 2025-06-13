@@ -6,6 +6,7 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 import threading
 from pathlib import Path
+from minecraft_skin_viewer import MinecraftSkinViewer
 
 # Set the appearance mode and color theme
 ctk.set_appearance_mode("dark")
@@ -33,7 +34,6 @@ class MinecraftSkinAnimator:
         main_frame = ctk.CTkFrame(self.root)
         main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
         main_frame.grid_columnconfigure(0, weight=1)
-        main_frame.grid_columnconfigure(1, weight=2)  # Right panel gets more space
         main_frame.grid_rowconfigure(2, weight=1)
         
         # Title
@@ -51,11 +51,34 @@ class MinecraftSkinAnimator:
             font=ctk.CTkFont(size=14),
             text_color="gray70"
         )
-        subtitle_label.grid(row=1, column=0, columnspan=2, pady=(0, 20))
+        subtitle_label.grid(row=1, column=0, columnspan=1, pady=(0, 20))
+        
+        # Create tabbed interface
+        self.tab_view = ctk.CTkTabview(main_frame)
+        self.tab_view.grid(row=2, column=0, sticky="nsew", padx=20, pady=20)
+        self.tab_view.grid_columnconfigure(0, weight=1)
+        self.tab_view.grid_rowconfigure(0, weight=1)
+        
+        # Add tabs
+        self.animation_tab = self.tab_view.add("Animation Generator")
+        self.skin_preview_tab = self.tab_view.add("3D Skin Preview")
+        
+        # Setup Animation tab
+        self.setup_animation_tab()
+        
+        # Setup 3D Skin Preview tab
+        self.setup_skin_preview_tab()
+    
+    def setup_animation_tab(self):
+        
+        # Configure tab layout
+        self.animation_tab.grid_columnconfigure(0, weight=1)
+        self.animation_tab.grid_columnconfigure(1, weight=2)  # Right panel gets more space
+        self.animation_tab.grid_rowconfigure(0, weight=1)
         
         # Left panel - Controls
-        controls_frame = ctk.CTkFrame(main_frame)
-        controls_frame.grid(row=2, column=0, sticky="nsew", padx=(20, 10), pady=20)
+        controls_frame = ctk.CTkFrame(self.animation_tab)
+        controls_frame.grid(row=0, column=0, sticky="nsew", padx=(20, 10), pady=20)
         controls_frame.grid_columnconfigure(0, weight=1)
         controls_frame.grid_columnconfigure(1, weight=1)
         controls_frame.grid_rowconfigure(8, weight=1)
@@ -124,8 +147,8 @@ class MinecraftSkinAnimator:
         self.generate_btn.grid(row=9, column=0, columnspan=2, pady=20, padx=20, sticky="ew")
         
         # Right panel - Preview and Animation Viewer
-        right_panel = ctk.CTkFrame(main_frame)
-        right_panel.grid(row=2, column=1, sticky="nsew", padx=(10, 20), pady=20)
+        right_panel = ctk.CTkFrame(self.animation_tab)
+        right_panel.grid(row=0, column=1, sticky="nsew", padx=(10, 20), pady=20)
         right_panel.grid_columnconfigure(0, weight=1)
         right_panel.grid_rowconfigure(1, weight=1)  # Original preview
         right_panel.grid_rowconfigure(3, weight=2)  # Animation viewer gets more space
@@ -198,6 +221,88 @@ class MinecraftSkinAnimator:
         
         # Initialize animation variables
         self.animation_frames = []
+    
+    def setup_skin_preview_tab(self):
+        """Setup the 3D skin preview tab"""
+        # Configure tab layout
+        self.skin_preview_tab.grid_columnconfigure(0, weight=1)
+        self.skin_preview_tab.grid_columnconfigure(1, weight=2)  # 3D viewer gets more space
+        self.skin_preview_tab.grid_rowconfigure(0, weight=1)
+        
+        # Left panel - Controls for 3D viewer
+        preview_controls_frame = ctk.CTkFrame(self.skin_preview_tab)
+        preview_controls_frame.grid(row=0, column=0, sticky="nsew", padx=(20, 10), pady=20)
+        preview_controls_frame.grid_columnconfigure(0, weight=1)
+        preview_controls_frame.grid_rowconfigure(6, weight=1)
+        
+        # Title for 3D preview controls
+        preview_title = ctk.CTkLabel(
+            preview_controls_frame, 
+            text="3D Skin Preview", 
+            font=ctk.CTkFont(size=20, weight="bold")
+        )
+        preview_title.grid(row=0, column=0, pady=(20, 10), sticky="w")
+        
+        # Skin file selection for 3D preview
+        skin_file_label = ctk.CTkLabel(preview_controls_frame, text="Select Skin File:", font=ctk.CTkFont(size=16, weight="bold"))
+        skin_file_label.grid(row=1, column=0, pady=(20, 10), sticky="w")
+        
+        self.skin_file_path_var = tk.StringVar()
+        skin_file_entry = ctk.CTkEntry(preview_controls_frame, textvariable=self.skin_file_path_var, width=300, placeholder_text="Choose a PNG skin file...")
+        skin_file_entry.grid(row=2, column=0, pady=(0, 10), padx=20, sticky="ew")
+        
+        skin_browse_btn = ctk.CTkButton(
+            preview_controls_frame, 
+            text="📁 Browse Skin", 
+            command=self.browse_skin_file,
+            height=35
+        )
+        skin_browse_btn.grid(row=3, column=0, pady=(0, 10), padx=20, sticky="ew")
+        
+        # Load test skin button
+        test_skin_btn = ctk.CTkButton(
+            preview_controls_frame, 
+            text="🎮 Load Test Skin (BanditSkin.png)", 
+            command=self.load_test_skin,
+            height=35,
+            fg_color="#ff6b35",
+            hover_color="#e55a2e"
+        )
+        test_skin_btn.grid(row=4, column=0, pady=(0, 20), padx=20, sticky="ew")
+        
+        # Instructions
+        instructions_label = ctk.CTkLabel(
+            preview_controls_frame,
+            text="3D Viewer Controls:\n\n• Left click + drag: Rotate model\n• Mouse wheel: Zoom in/out\n\nThe model will display the\nMinecraft skin texture mapped\nonto a 3D character model.",
+            font=ctk.CTkFont(size=12),
+            text_color="gray70",
+            justify="left"
+        )
+        instructions_label.grid(row=5, column=0, pady=(0, 20), padx=20, sticky="ew")
+        
+        # Right panel - 3D Viewer
+        viewer_frame = ctk.CTkFrame(self.skin_preview_tab)
+        viewer_frame.grid(row=0, column=1, sticky="nsew", padx=(10, 20), pady=20)
+        viewer_frame.grid_columnconfigure(0, weight=1)
+        viewer_frame.grid_rowconfigure(0, weight=1)
+        
+        # Create 3D viewer
+        try:
+            self.skin_viewer = MinecraftSkinViewer(viewer_frame, width=500, height=500)
+            
+            # Load test skin by default
+            if os.path.exists("BanditSkin.png"):
+                self.skin_viewer.load_skin("BanditSkin.png")
+                self.skin_file_path_var.set("BanditSkin.png")
+        except Exception as e:
+            # Fallback if 3D viewer fails
+            error_label = ctk.CTkLabel(
+                viewer_frame,
+                text=f"3D Viewer Error:\n{str(e)}\n\nPlease check that numpy is installed:\npip install numpy",
+                font=ctk.CTkFont(size=14),
+                text_color="red"
+            )
+            error_label.pack(expand=True)
         self.animation_images = []
         self.current_frame = 0
         self.is_playing = False
@@ -217,6 +322,40 @@ class MinecraftSkinAnimator:
             self.file_path_var.set(file_path)
             self.current_image_path = file_path
             self.load_preview()
+    
+    def browse_skin_file(self):
+        """Open file dialog to select a skin file for 3D preview"""
+        filetypes = [
+            ("PNG files", "*.png"),
+            ("All files", "*.*")
+        ]
+        
+        filename = filedialog.askopenfilename(
+            title="Select Minecraft Skin File",
+            filetypes=filetypes,
+            initialdir=os.path.expanduser("~")
+        )
+        
+        if filename:
+            self.skin_file_path_var.set(filename)
+            if hasattr(self, 'skin_viewer'):
+                success = self.skin_viewer.load_skin(filename)
+                if not success:
+                    messagebox.showerror("Error", "Failed to load skin file. Please make sure it's a valid PNG image.")
+    
+    def load_test_skin(self):
+        """Load the test skin (BanditSkin.png)"""
+        test_skin_path = "BanditSkin.png"
+        if os.path.exists(test_skin_path):
+            self.skin_file_path_var.set(test_skin_path)
+            if hasattr(self, 'skin_viewer'):
+                success = self.skin_viewer.load_skin(test_skin_path)
+                if not success:
+                    messagebox.showerror("Error", "Failed to load test skin file.")
+            else:
+                messagebox.showinfo("Info", "Test skin loaded. Please check the 3D viewer.")
+        else:
+            messagebox.showerror("Error", "BanditSkin.png not found in the current directory.")
             
     def load_preview(self):
         try:
