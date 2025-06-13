@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import Canvas
 from PIL import Image, ImageTk
 import numpy as np
+import customtkinter as ctk
 
 class MinecraftSkinViewer:
     def __init__(self, parent, width=400, height=400):
@@ -10,16 +11,33 @@ class MinecraftSkinViewer:
         self.width = width
         self.height = height
         
-        # Create canvas for 3D rendering
-        self.canvas = Canvas(parent, width=width, height=height, bg='#2b2b2b')
-        self.canvas.pack(fill="both", expand=True)
+        # Create control frame for toggle switch (using CustomTkinter)
+        self.control_frame = ctk.CTkFrame(parent)
+        self.control_frame.pack(side="top", fill="x", padx=10, pady=(10, 5))
+        
+        # Outer layers toggle using CustomTkinter checkbox
+        self.show_outer_layers = tk.BooleanVar(value=True)
+        self.outer_layers_checkbox = ctk.CTkCheckBox(
+            self.control_frame,
+            text="Show Outer Layers (Hat/Jacket)",
+            variable=self.show_outer_layers,
+            command=self.on_outer_layers_toggle
+        )
+        self.outer_layers_checkbox.pack(side="left", padx=10, pady=10)
+        
+        # Create canvas for 3D rendering (directly in parent, no extra frame)
+        self.canvas = Canvas(parent, width=width, height=height, bg='#2b2b2b', highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        
+        # Bind to canvas resize events to keep centered
+        self.canvas.bind("<Configure>", self.on_canvas_resize)
         
         # 3D transformation parameters
         self.rotation_x = 0
         self.rotation_y = 0
         self.scale = 8  # Start with smaller scale to see full model
         self.offset_x = width // 2
-        self.offset_y = height // 2
+        self.offset_y = height // 2  # Will be updated after control panel is created
         
         # Mouse interaction
         self.last_mouse_x = 0
@@ -46,7 +64,23 @@ class MinecraftSkinViewer:
         # Define Minecraft player model vertices (simplified cube-based model)
         self.setup_model()
         
-        # Initial render
+        # Update center point after UI is created and initial render
+        self.update_center()
+        self.render()
+    
+    def update_center(self):
+        """Update the center point to account for control panel"""
+        # Get the actual canvas dimensions
+        self.offset_x = self.canvas.winfo_width() // 2
+        self.offset_y = self.canvas.winfo_height() // 2
+    
+    def on_canvas_resize(self, event):
+        """Handle canvas resize events to keep rendering centered"""
+        self.update_center()
+        self.render()
+    
+    def on_outer_layers_toggle(self):
+        """Handle outer layers toggle"""
         self.render()
     
     def setup_model(self):
@@ -480,17 +514,22 @@ class MinecraftSkinViewer:
         self.canvas.delete("all")
         
         # List of model parts with their vertices and part names
-        # Inner layers first, then outer layers
+        # Inner layers first, then outer layers (if enabled)
         model_parts = [
             (self.head_vertices, "head"),
             (self.body_vertices, "body"),
             (self.left_arm_vertices, "left_arm"),
             (self.right_arm_vertices, "right_arm"),
             (self.left_leg_vertices, "left_leg"),
-            (self.right_leg_vertices, "right_leg"),
-            (self.head_outer_vertices, "head_outer"),
-            (self.body_outer_vertices, "body_outer")
+            (self.right_leg_vertices, "right_leg")
         ]
+        
+        # Add outer layers only if the toggle is enabled
+        if self.show_outer_layers.get():
+            model_parts.extend([
+                (self.head_outer_vertices, "head_outer"),
+                (self.body_outer_vertices, "body_outer")
+            ])
         
         face_names = ["front", "back", "top", "bottom", "left", "right"]
         
