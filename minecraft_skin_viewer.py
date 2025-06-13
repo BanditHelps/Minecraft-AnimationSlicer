@@ -101,7 +101,7 @@ class MinecraftSkinViewer:
         
         # Positioning: Head at top, body below, arms to sides, legs below body
         # Note: In our coordinate system, positive Y is up
-        head_y = 10      # Head center (above body)
+        head_y = 12      # Head center (above body) - moved up to prevent clipping
         body_y = 2       # Body center  
         arm_y = 2        # Arms at shoulder level (same as body)
         leg_y = -10      # Legs below body
