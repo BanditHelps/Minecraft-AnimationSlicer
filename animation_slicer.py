@@ -240,7 +240,7 @@ class MinecraftSkinAnimator:
         preview_controls_frame = ctk.CTkFrame(self.skin_preview_tab)
         preview_controls_frame.grid(row=0, column=0, sticky="nsew", padx=(20, 10), pady=20)
         preview_controls_frame.grid_columnconfigure(0, weight=1)
-        preview_controls_frame.grid_rowconfigure(6, weight=1)
+        preview_controls_frame.grid_rowconfigure(17, weight=1)
         
         # Title for 3D preview controls
         preview_title = ctk.CTkLabel(
@@ -286,6 +286,109 @@ class MinecraftSkinAnimator:
             justify="left"
         )
         instructions_label.grid(row=5, column=0, pady=(0, 20), padx=20, sticky="ew")
+        
+        # Animation Preview Section
+        animation_section_label = ctk.CTkLabel(
+            preview_controls_frame, 
+            text="Animation Preview", 
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        animation_section_label.grid(row=6, column=0, pady=(20, 10), sticky="w")
+        
+        # Base skin selection
+        base_skin_label = ctk.CTkLabel(preview_controls_frame, text="Base Skin:", font=ctk.CTkFont(size=12, weight="bold"))
+        base_skin_label.grid(row=7, column=0, pady=(5, 5), sticky="w")
+        
+        self.base_skin_path_var = tk.StringVar()
+        base_skin_entry = ctk.CTkEntry(preview_controls_frame, textvariable=self.base_skin_path_var, width=250, placeholder_text="Select base skin...")
+        base_skin_entry.grid(row=8, column=0, pady=(0, 5), padx=20, sticky="ew")
+        
+        base_skin_browse_btn = ctk.CTkButton(
+            preview_controls_frame, 
+            text="Browse Base", 
+            command=self.browse_base_skin,
+            height=30
+        )
+        base_skin_browse_btn.grid(row=9, column=0, pady=(0, 10), padx=20, sticky="ew")
+        
+        # Input skin selection
+        input_skin_label = ctk.CTkLabel(preview_controls_frame, text="Input Skin (to animate):", font=ctk.CTkFont(size=12, weight="bold"))
+        input_skin_label.grid(row=10, column=0, pady=(5, 5), sticky="w")
+        
+        self.input_skin_path_var = tk.StringVar()
+        input_skin_entry = ctk.CTkEntry(preview_controls_frame, textvariable=self.input_skin_path_var, width=250, placeholder_text="Select input skin...")
+        input_skin_entry.grid(row=11, column=0, pady=(0, 5), padx=20, sticky="ew")
+        
+        input_skin_browse_btn = ctk.CTkButton(
+            preview_controls_frame, 
+            text="Browse Input", 
+            command=self.browse_input_skin,
+            height=30
+        )
+        input_skin_browse_btn.grid(row=12, column=0, pady=(0, 10), padx=20, sticky="ew")
+        
+        # Load from Animation tab button
+        load_from_animation_btn = ctk.CTkButton(
+            preview_controls_frame, 
+            text="🔄 Use Animation Tab Data", 
+            command=self.load_from_animation_tab,
+            height=30,
+            fg_color="#28a745",
+            hover_color="#218838"
+        )
+        load_from_animation_btn.grid(row=13, column=0, pady=(0, 15), padx=20, sticky="ew")
+        
+        # Animation controls
+        self.animation_3d_frame_var = tk.StringVar(value="Frame: 0/0")
+        animation_frame_label = ctk.CTkLabel(preview_controls_frame, textvariable=self.animation_3d_frame_var, font=ctk.CTkFont(size=12))
+        animation_frame_label.grid(row=14, column=0, pady=(5, 5), sticky="w")
+        
+        # Animation slider for 3D preview
+        self.animation_3d_slider = ctk.CTkSlider(
+            preview_controls_frame,
+            from_=0,
+            to=1,
+            number_of_steps=1,
+            command=self.scrub_3d_animation
+        )
+        self.animation_3d_slider.grid(row=15, column=0, sticky="ew", padx=20, pady=(0, 5))
+        self.animation_3d_slider.set(0)
+        
+        # 3D Animation playback controls
+        animation_controls_3d = ctk.CTkFrame(preview_controls_frame)
+        animation_controls_3d.grid(row=16, column=0, sticky="ew", padx=20, pady=(0, 10))
+        animation_controls_3d.grid_columnconfigure(0, weight=1)
+        animation_controls_3d.grid_columnconfigure(1, weight=1)
+        animation_controls_3d.grid_columnconfigure(2, weight=1)
+        
+        self.play_3d_btn = ctk.CTkButton(
+            animation_controls_3d,
+            text="▶️",
+            width=50,
+            command=self.toggle_3d_animation_playback
+        )
+        self.play_3d_btn.grid(row=0, column=0, padx=(0, 5), pady=5)
+        
+        self.reset_3d_btn = ctk.CTkButton(
+            animation_controls_3d,
+            text="🔄",
+            width=50,
+            command=self.reset_3d_animation
+        )
+        self.reset_3d_btn.grid(row=0, column=1, padx=5, pady=5)
+        
+        self.base_only_btn = ctk.CTkButton(
+            animation_controls_3d,
+            text="Base",
+            width=50,
+            command=self.show_base_skin_only
+        )
+        self.base_only_btn.grid(row=0, column=2, padx=(5, 0), pady=5)
+        
+        # Initialize 3D animation variables
+        self.is_3d_playing = False
+        self.play_3d_timer = None
+        self.current_3d_frame = 0
         
         # Right panel - 3D Viewer
         viewer_frame = ctk.CTkFrame(self.skin_preview_tab)
@@ -416,7 +519,192 @@ class MinecraftSkinAnimator:
             messagebox.showerror("Error", f"Failed to create/load test skin: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def browse_base_skin(self):
+        """Browse for base skin file for animation preview"""
+        filetypes = [
+            ("PNG files", "*.png"),
+            ("All files", "*.*")
+        ]
+        
+        filename = filedialog.askopenfilename(
+            title="Select Base Skin File",
+            filetypes=filetypes,
+            initialdir=os.path.expanduser("~")
+        )
+        
+        if filename:
+            self.base_skin_path_var.set(filename)
+            if hasattr(self, 'skin_viewer') and self.skin_viewer is not None:
+                success = self.skin_viewer.load_base_skin(filename)
+                if success:
+                    messagebox.showinfo("Success", "Base skin loaded successfully!")
+                else:
+                    messagebox.showerror("Error", "Failed to load base skin file.")
+            else:
+                messagebox.showwarning("Warning", "3D Skin Viewer is not available.")
+    
+    def browse_input_skin(self):
+        """Browse for input skin file for animation preview"""
+        filetypes = [
+            ("PNG files", "*.png"),
+            ("All files", "*.*")
+        ]
+        
+        filename = filedialog.askopenfilename(
+            title="Select Input Skin File (to animate)",
+            filetypes=filetypes,
+            initialdir=os.path.expanduser("~")
+        )
+        
+        if filename:
+            self.input_skin_path_var.set(filename)
+            if hasattr(self, 'skin_viewer') and self.skin_viewer is not None:
+                success = self.skin_viewer.load_input_skin(filename)
+                if success:
+                    messagebox.showinfo("Success", "Input skin loaded successfully!")
+                else:
+                    messagebox.showerror("Error", "Failed to load input skin file.")
+            else:
+                messagebox.showwarning("Warning", "3D Skin Viewer is not available.")
+    
+    def load_from_animation_tab(self):
+        """Load base skin, input skin, and animation frames from Animation tab"""
+        if not hasattr(self, 'skin_viewer') or self.skin_viewer is None:
+            messagebox.showwarning("Warning", "3D Skin Viewer is not available.")
+            return
+        
+        # Check if we have the necessary data from the animation tab
+        if not self.current_image_path:
+            messagebox.showwarning("Warning", "No input skin selected in Animation tab. Please select a skin file first.")
+            return
+        
+        if not self.animation_frames or len(self.animation_frames) == 0:
+            messagebox.showwarning("Warning", "No animation frames generated. Please generate animation frames first in the Animation tab.")
+            return
+        
+        try:
+            # Use current skin as base skin if no base skin is loaded
+            base_skin_path = self.base_skin_path_var.get() or self.current_image_path
             
+            # Load base skin
+            success1 = self.skin_viewer.load_base_skin(base_skin_path)
+            self.base_skin_path_var.set(base_skin_path)
+            
+            # Load input skin (from animation tab)
+            success2 = self.skin_viewer.load_input_skin(self.current_image_path)
+            self.input_skin_path_var.set(self.current_image_path)
+            
+            # Load animation frames
+            if success1 and success2:
+                self.skin_viewer.load_animation_frames(self.animation_frames)
+                
+                # Update 3D animation controls
+                max_frame = max(0, len(self.animation_frames) - 1)
+                self.animation_3d_slider.configure(
+                    from_=0,
+                    to=max_frame,
+                    number_of_steps=max(1, max_frame)
+                )
+                
+                self.current_3d_frame = 0
+                self.animation_3d_frame_var.set(f"Frame: 0/{max_frame}")
+                self.animation_3d_slider.set(0)
+                
+                messagebox.showinfo("Success", f"Loaded animation data!\nBase: {os.path.basename(base_skin_path)}\nInput: {os.path.basename(self.current_image_path)}\nFrames: {len(self.animation_frames)}")
+            else:
+                messagebox.showerror("Error", "Failed to load skin files for animation preview.")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load animation data: {str(e)}")
+    
+    def scrub_3d_animation(self, value):
+        """Handle 3D animation scrubbing via slider"""
+        if not hasattr(self, 'skin_viewer') or self.skin_viewer is None:
+            return
+            
+        if not self.skin_viewer.has_animation_data():
+            return
+            
+        frame_index = int(float(value))
+        if self.skin_viewer.show_animation_frame(frame_index):
+            self.current_3d_frame = frame_index
+            max_frame = max(0, len(self.skin_viewer.animation_frames) - 1)
+            self.animation_3d_frame_var.set(f"Frame: {frame_index}/{max_frame}")
+    
+    def toggle_3d_animation_playback(self):
+        """Toggle 3D animation playback"""
+        if not hasattr(self, 'skin_viewer') or self.skin_viewer is None:
+            return
+        
+        if not self.skin_viewer.has_animation_data():
+            messagebox.showwarning("Warning", "No animation data loaded. Please load base skin, input skin, and animation frames first.")
+            return
+            
+        if self.is_3d_playing:
+            self.stop_3d_animation()
+        else:
+            self.start_3d_animation()
+    
+    def start_3d_animation(self):
+        """Start automatic 3D animation playback"""
+        if not self.skin_viewer.has_animation_data():
+            return
+            
+        self.is_3d_playing = True
+        self.play_3d_btn.configure(text="⏸️")
+        self.play_3d_animation_frame()
+    
+    def stop_3d_animation(self):
+        """Stop automatic 3D animation playback"""
+        self.is_3d_playing = False
+        self.play_3d_btn.configure(text="▶️")
+        if self.play_3d_timer:
+            self.root.after_cancel(self.play_3d_timer)
+            self.play_3d_timer = None
+    
+    def play_3d_animation_frame(self):
+        """Play next 3D animation frame"""
+        if not self.is_3d_playing or not self.skin_viewer.has_animation_data():
+            return
+            
+        # Move to next frame
+        self.current_3d_frame = (self.current_3d_frame + 1) % len(self.skin_viewer.animation_frames)
+        
+        # Update display
+        if self.skin_viewer.show_animation_frame(self.current_3d_frame):
+            self.animation_3d_slider.set(self.current_3d_frame)
+            max_frame = max(0, len(self.skin_viewer.animation_frames) - 1)
+            self.animation_3d_frame_var.set(f"Frame: {self.current_3d_frame}/{max_frame}")
+        
+        # Schedule next frame (150ms = ~6.7 FPS, good for 3D preview)
+        self.play_3d_timer = self.root.after(150, self.play_3d_animation_frame)
+    
+    def reset_3d_animation(self):
+        """Reset 3D animation to first frame"""
+        if not hasattr(self, 'skin_viewer') or self.skin_viewer is None:
+            return
+        
+        if not self.skin_viewer.has_animation_data():
+            return
+            
+        self.stop_3d_animation()
+        self.current_3d_frame = 0
+        if self.skin_viewer.show_animation_frame(0):
+            self.animation_3d_slider.set(0)
+            max_frame = max(0, len(self.skin_viewer.animation_frames) - 1)
+            self.animation_3d_frame_var.set(f"Frame: 0/{max_frame}")
+    
+    def show_base_skin_only(self):
+        """Show only the base skin without animation"""
+        if not hasattr(self, 'skin_viewer') or self.skin_viewer is None:
+            return
+            
+        if self.skin_viewer.base_skin_texture:
+            self.stop_3d_animation()
+            self.skin_viewer.reset_to_base_skin()
+            self.animation_3d_frame_var.set("Showing base skin only")
+    
     def load_preview(self):
         try:
             if self.current_image_path and os.path.exists(self.current_image_path):

@@ -62,6 +62,14 @@ class MinecraftSkinViewer:
         self.skin_texture = None
         self.skin_pixels = None
         
+        # Animation preview support
+        self.base_skin_texture = None
+        self.base_skin_pixels = None
+        self.input_skin_texture = None
+        self.input_skin_pixels = None
+        self.animation_frames = []
+        self.current_animation_frame = 0
+        
         # Define Minecraft player model vertices (simplified cube-based model)
         self.setup_model()
         
@@ -314,6 +322,138 @@ class MinecraftSkinViewer:
         except Exception as e:
             print(f"Error loading skin: {e}")
             return False
+    
+    def load_base_skin(self, skin_path):
+        """Load a base skin texture for animation preview"""
+        try:
+            skin_image = Image.open(skin_path).convert('RGBA')
+            # Ensure it's 64x64 (classic skin format)
+            if skin_image.size != (64, 64):
+                skin_image = skin_image.resize((64, 64), Image.NEAREST)
+            
+            self.base_skin_texture = skin_image
+            self.base_skin_pixels = np.array(skin_image)
+            
+            # If no animation is active, show the base skin
+            if not self.animation_frames:
+                self.skin_texture = skin_image
+                self.skin_pixels = self.base_skin_pixels
+                self.render()
+            
+            return True
+        except Exception as e:
+            print(f"Error loading base skin: {e}")
+            return False
+    
+    def load_input_skin(self, skin_path):
+        """Load an input skin texture for animation preview"""
+        try:
+            skin_image = Image.open(skin_path).convert('RGBA')
+            # Ensure it's 64x64 (classic skin format)
+            if skin_image.size != (64, 64):
+                skin_image = skin_image.resize((64, 64), Image.NEAREST)
+            
+            self.input_skin_texture = skin_image
+            self.input_skin_pixels = np.array(skin_image)
+            return True
+        except Exception as e:
+            print(f"Error loading input skin: {e}")
+            return False
+    
+    def load_animation_frames(self, frame_paths):
+        """Load animation frame paths for preview"""
+        self.animation_frames = frame_paths
+        self.current_animation_frame = 0
+        if frame_paths:
+            self.show_animation_frame(0)
+    
+    def show_animation_frame(self, frame_index):
+        """Show a specific animation frame by composing base + input + mask"""
+        if not self.animation_frames or frame_index >= len(self.animation_frames):
+            return False
+        
+        if not self.base_skin_texture or not self.input_skin_texture:
+            return False
+        
+        try:
+            # Load the alpha mask frame
+            mask_path = self.animation_frames[frame_index]
+            mask_image = Image.open(mask_path).convert('RGBA')
+            if mask_image.size != (64, 64):
+                mask_image = mask_image.resize((64, 64), Image.NEAREST)
+            
+            # Compose the final skin
+            composed_skin = self.compose_skin(self.base_skin_texture, self.input_skin_texture, mask_image)
+            
+            if composed_skin:
+                self.skin_texture = composed_skin
+                self.skin_pixels = np.array(composed_skin)
+                self.current_animation_frame = frame_index
+                self.render()
+                return True
+            
+        except Exception as e:
+            print(f"Error showing animation frame {frame_index}: {e}")
+        
+        return False
+    
+    def compose_skin(self, base_skin, input_skin, alpha_mask):
+        """Compose base skin + input skin using alpha mask"""
+        try:
+            # Create a copy of the base skin to work with
+            result_skin = base_skin.copy()
+            
+            # Convert images to numpy arrays for pixel manipulation
+            base_pixels = np.array(base_skin)
+            input_pixels = np.array(input_skin)
+            mask_pixels = np.array(alpha_mask)
+            result_pixels = np.array(result_skin)
+            
+            # For each pixel, if the mask is not transparent, use input skin pixel
+            for y in range(64):
+                for x in range(64):
+                    # Get mask alpha value
+                    mask_alpha = mask_pixels[y, x][3] if mask_pixels[y, x][3] > 0 else 0
+                    
+                    if mask_alpha > 0:  # If mask is not transparent at this pixel
+                        # Get input skin pixel
+                        input_pixel = input_pixels[y, x]
+                        
+                        # Only use input pixel if it's not transparent
+                        if input_pixel[3] > 0:
+                            # Use mask alpha to blend between base and input
+                            blend_factor = mask_alpha / 255.0
+                            
+                            # Blend the colors
+                            for c in range(3):  # RGB channels
+                                result_pixels[y, x][c] = int(
+                                    base_pixels[y, x][c] * (1 - blend_factor) +
+                                    input_pixel[c] * blend_factor
+                                )
+                            
+                            # For alpha channel, use the maximum of base and input
+                            result_pixels[y, x][3] = max(base_pixels[y, x][3], input_pixel[3])
+            
+            # Create result image from modified pixels
+            result_image = Image.fromarray(result_pixels, 'RGBA')
+            return result_image
+            
+        except Exception as e:
+            print(f"Error composing skin: {e}")
+            return None
+    
+    def reset_to_base_skin(self):
+        """Reset to showing just the base skin"""
+        if self.base_skin_texture:
+            self.skin_texture = self.base_skin_texture
+            self.skin_pixels = self.base_skin_pixels
+            self.render()
+    
+    def has_animation_data(self):
+        """Check if animation data is loaded"""
+        return (self.base_skin_texture is not None and 
+                self.input_skin_texture is not None and 
+                len(self.animation_frames) > 0)
     
     def get_texture_color(self, u, v, part='head'):
         """Get color from skin texture based on UV coordinates and body part"""
@@ -740,8 +880,6 @@ class MinecraftSkinViewer:
         # Clamp scale to reasonable bounds
         self.scale = max(2, min(300, self.scale))
         self.render()
-    
-
     
     def force_render_refresh(self):
         """Force a complete render refresh - useful for CustomTkinter context"""
