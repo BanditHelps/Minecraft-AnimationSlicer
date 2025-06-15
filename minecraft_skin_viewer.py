@@ -323,9 +323,71 @@ class MinecraftSkinViewer:
         if part in SKIN_UV_MAPPING:
             x1, y1, x2, y2 = SKIN_UV_MAPPING[part]
             
+            # Define faces that need horizontal (U) flipping for proper Minecraft skin mapping
+            faces_needing_u_flip = {
+                'head_front', 'head_outer_front',
+                'body_front', 'body_outer_front', 
+                'left_arm_front', 'right_arm_front',
+                'left_leg_front', 'right_leg_front',
+                'head_back', 'head_outer_back',
+                'body_back', 'body_outer_back',
+                'left_arm_back', 'right_arm_back', 
+                'left_leg_back', 'right_leg_back',
+                'head_left', 'head_outer_left',
+                'body_left', 'body_outer_left',
+                'left_arm_left', 'right_arm_left',
+                'left_leg_left', 'right_leg_left',
+                'head_right', 'head_outer_right',
+                'body_right', 'body_outer_right',
+                'left_arm_right', 'right_arm_right',
+                'left_leg_right', 'right_leg_right',
+                # Top faces that need mirroring
+                'head_top', 'head_outer_top',
+                'left_arm_top', 'right_arm_top'
+            }
+            
+            # Define faces that need rotation (in degrees: 90, 180, 270)
+            faces_needing_rotation = {
+                # Top faces typically need 90° rotation
+                'head_top': 90, 'head_outer_top': 90,
+                'body_top': 90, 'body_outer_top': 90,
+                'left_arm_top': 90, 'right_arm_top': 90,
+                'left_leg_top': 90, 'right_leg_top': 90,
+                
+                # Bottom faces typically need 270° rotation (or -90°)
+                'head_bottom': 270, 'head_outer_bottom': 270,
+                'body_bottom': 270, 'body_outer_bottom': 270,
+                'left_arm_bottom': 270, 'right_arm_bottom': 270,
+                'left_leg_bottom': 270, 'right_leg_bottom': 270,
+                
+                # Some side faces might need 180° rotation - adjust as needed
+                # Uncomment and modify these if certain sides appear upside down:
+                # 'head_left': 180, 'head_outer_left': 180,
+                # 'body_left': 180, 'body_outer_left': 180,
+            }
+            
+            # Apply rotation to UV coordinates if needed
+            orig_u, orig_v = u, v
+            if part in faces_needing_rotation:
+                rotation = faces_needing_rotation[part]
+                if rotation == 90:
+                    # 90° clockwise: new_u = v, new_v = 1-u
+                    u, v = orig_v, 1 - orig_u
+                elif rotation == 180:
+                    # 180°: new_u = 1-u, new_v = 1-v
+                    u, v = 1 - orig_u, 1 - orig_v
+                elif rotation == 270:
+                    # 270° clockwise (or 90° counter-clockwise): new_u = 1-v, new_v = u
+                    u, v = 1 - orig_v, orig_u
+            
             # Convert UV coordinates (0-1) to texture coordinates
-            # Flip V coordinate to fix upside-down textures
-            tx = int(x1 + u * (x2 - x1))
+            # Apply horizontal flipping for faces that need it
+            if part in faces_needing_u_flip:
+                tx = int(x1 + (1 - u) * (x2 - x1))  # Flip U coordinate
+            else:
+                tx = int(x1 + u * (x2 - x1))  # Normal U coordinate
+            
+            # Flip V coordinate to fix upside-down textures (this was already correct)
             ty = int(y1 + (1 - v) * (y2 - y1))
             
             # Clamp to texture bounds
