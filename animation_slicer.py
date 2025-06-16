@@ -7,6 +7,7 @@ from PIL import Image, ImageTk
 import threading
 from pathlib import Path
 from minecraft_skin_viewer import MinecraftSkinViewer
+from skin_mapping_config import SKIN_UV_MAPPING
 
 # Set the appearance mode and color theme
 ctk.set_appearance_mode("dark")
@@ -120,11 +121,11 @@ class MinecraftSkinAnimator:
         
         self.animation_type = ctk.CTkOptionMenu(
             controls_frame,
-            values=["Bottom to Head", "Head to Bottom", "Left to Right", "Right to Left"],
+            values=["Head to Toe", "Toe to Head", "Core to Limbs", "Limbs to Core", "Left to Right Body", "Right to Left Body"],
             width=150
         )
         self.animation_type.grid(row=5, column=1, sticky="e", padx=(10, 20), pady=(0, 10))
-        self.animation_type.set("Bottom to Head")
+        self.animation_type.set("Head to Toe")
         
         # Progress bar
         self.progress_var = tk.DoubleVar()
@@ -793,14 +794,18 @@ class MinecraftSkinAnimator:
             self.status_var.set("Generating frames...")
             
             # Generate frames based on animation type
-            if animation_type == "Bottom to Head":
-                self.generate_bottom_to_head_frames(original_img, output_dir, frames)
-            elif animation_type == "Head to Bottom":
-                self.generate_head_to_bottom_frames(original_img, output_dir, frames)
-            elif animation_type == "Left to Right":
-                self.generate_left_to_right_frames(original_img, output_dir, frames)
-            elif animation_type == "Right to Left":
-                self.generate_right_to_left_frames(original_img, output_dir, frames)
+            if animation_type == "Head to Toe":
+                self.generate_head_to_toe_frames(original_img, output_dir, frames)
+            elif animation_type == "Toe to Head":
+                self.generate_toe_to_head_frames(original_img, output_dir, frames)
+            elif animation_type == "Core to Limbs":
+                self.generate_core_to_limbs_frames(original_img, output_dir, frames)
+            elif animation_type == "Limbs to Core":
+                self.generate_limbs_to_core_frames(original_img, output_dir, frames)
+            elif animation_type == "Left to Right Body":
+                self.generate_left_to_right_body_frames(original_img, output_dir, frames)
+            elif animation_type == "Right to Left Body":
+                self.generate_right_to_left_body_frames(original_img, output_dir, frames)
             
             self.progress_var.set(1.0)
             self.status_var.set(f"✅ Generated {frames+1} frames in {output_dir}")
@@ -828,11 +833,53 @@ class MinecraftSkinAnimator:
                     pixels[x, y] = (0, 0, 0, a)  # Make it black but keep alpha
         
         return mask
+    
+    def get_body_part_groups(self):
+        """Define body part groups for anatomical animations"""
+        return {
+            'head': [k for k in SKIN_UV_MAPPING.keys() if k.startswith('head')],
+            'body': [k for k in SKIN_UV_MAPPING.keys() if k.startswith('body')],
+            'arms': [k for k in SKIN_UV_MAPPING.keys() if 'arm' in k],
+            'legs': [k for k in SKIN_UV_MAPPING.keys() if 'leg' in k],
+            'left_side': [k for k in SKIN_UV_MAPPING.keys() if 'left' in k],
+            'right_side': [k for k in SKIN_UV_MAPPING.keys() if 'right' in k],
+            'core': [k for k in SKIN_UV_MAPPING.keys() if k.startswith('head') or k.startswith('body')],
+            'limbs': [k for k in SKIN_UV_MAPPING.keys() if 'arm' in k or 'leg' in k]
+        }
+    
+    def create_anatomical_mask(self, original_img, visible_parts):
+        """Create alpha mask showing only specified body parts"""
+        mask = Image.new('RGBA', (original_img.width, original_img.height), (0, 0, 0, 0))
+        original_pixels = original_img.load()
+        mask_pixels = mask.load()
         
-    def generate_bottom_to_head_frames(self, original_img, output_dir, frames):
-        """Generate frames that grow from bottom to head"""
-        height = original_img.height
+        # Copy pixels from visible body parts
+        for part_name in visible_parts:
+            if part_name in SKIN_UV_MAPPING:
+                x1, y1, x2, y2 = SKIN_UV_MAPPING[part_name]
+                
+                # Copy the region
+                for y in range(y1, min(y2, original_img.height)):
+                    for x in range(x1, min(x2, original_img.width)):
+                        if 0 <= x < original_img.width and 0 <= y < original_img.height:
+                            r, g, b, a = original_pixels[x, y]
+                            if a > 0:  # Only copy non-transparent pixels
+                                mask_pixels[x, y] = (0, 0, 0, a)  # Black with original alpha
+        
+        return mask
+        
+    def generate_head_to_toe_frames(self, original_img, output_dir, frames):
+        """Generate frames that grow from head to toe anatomically"""
         base_name = Path(self.current_image_path).stem
+        body_parts = self.get_body_part_groups()
+        
+        # Define anatomical progression: head -> body -> arms -> legs
+        progression = [
+            body_parts['head'],
+            body_parts['body'],
+            body_parts['arms'],
+            body_parts['legs']
+        ]
         
         # Generate frame 0 (blank image)
         self.progress_var.set(0.05)
@@ -845,29 +892,47 @@ class MinecraftSkinAnimator:
             progress = (i + 1) / frames
             self.progress_var.set(0.1 + 0.8 * progress)
             
-            # Calculate how much of the image to show (from bottom)
-            visible_height = int(height * progress)
-            start_row = height - visible_height
+            # Determine which body parts should be visible at this progress
+            visible_parts = []
             
-            # Create alpha mask
-            frame = self.create_alpha_mask(original_img)
-            pixels = frame.load()
+            # Calculate how many progression stages to show
+            stage_progress = progress * len(progression)
             
-            # Make pixels above the visible area transparent
-            for y in range(start_row):
-                for x in range(frame.width):
-                    pixels[x, y] = (0, 0, 0, 0)  # Fully transparent
+            for stage_idx in range(len(progression)):
+                stage_start = stage_idx
+                stage_end = stage_idx + 1
+                
+                if stage_progress >= stage_end:
+                    # This stage is fully visible
+                    visible_parts.extend(progression[stage_idx])
+                elif stage_progress > stage_start:
+                    # This stage is partially visible
+                    partial_progress = stage_progress - stage_start
+                    parts_in_stage = progression[stage_idx]
+                    num_visible = int(len(parts_in_stage) * partial_progress)
+                    visible_parts.extend(parts_in_stage[:num_visible])
             
-            # Save frame with new naming scheme
+            # Create anatomical mask
+            frame = self.create_anatomical_mask(original_img, visible_parts)
+            
+            # Save frame
             frame_path = output_dir / f"{base_name}_{i+1}.png"
             frame.save(frame_path, "PNG")
             
-            self.status_var.set(f"Generated frame {i+1}/{frames}")
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
             
-    def generate_head_to_bottom_frames(self, original_img, output_dir, frames):
-        """Generate frames that grow from head to bottom"""
-        height = original_img.height
+    def generate_toe_to_head_frames(self, original_img, output_dir, frames):
+        """Generate frames that grow from toe to head anatomically"""
         base_name = Path(self.current_image_path).stem
+        body_parts = self.get_body_part_groups()
+        
+        # Define anatomical progression: legs -> arms -> body -> head
+        progression = [
+            body_parts['legs'],
+            body_parts['arms'],
+            body_parts['body'],
+            body_parts['head']
+        ]
         
         # Generate frame 0 (blank image)
         self.progress_var.set(0.05)
@@ -880,29 +945,45 @@ class MinecraftSkinAnimator:
             progress = (i + 1) / frames
             self.progress_var.set(0.1 + 0.8 * progress)
             
-            # Calculate how much of the image to show (from top)
-            visible_height = int(height * progress)
-            end_row = visible_height
+            # Determine which body parts should be visible at this progress
+            visible_parts = []
             
-            # Create alpha mask
-            frame = self.create_alpha_mask(original_img)
-            pixels = frame.load()
+            # Calculate how many progression stages to show
+            stage_progress = progress * len(progression)
             
-            # Make pixels below the visible area transparent
-            for y in range(end_row, height):
-                for x in range(frame.width):
-                    pixels[x, y] = (0, 0, 0, 0)  # Fully transparent
+            for stage_idx in range(len(progression)):
+                stage_start = stage_idx
+                stage_end = stage_idx + 1
+                
+                if stage_progress >= stage_end:
+                    # This stage is fully visible
+                    visible_parts.extend(progression[stage_idx])
+                elif stage_progress > stage_start:
+                    # This stage is partially visible
+                    partial_progress = stage_progress - stage_start
+                    parts_in_stage = progression[stage_idx]
+                    num_visible = int(len(parts_in_stage) * partial_progress)
+                    visible_parts.extend(parts_in_stage[:num_visible])
             
-            # Save frame with new naming scheme
+            # Create anatomical mask
+            frame = self.create_anatomical_mask(original_img, visible_parts)
+            
+            # Save frame
             frame_path = output_dir / f"{base_name}_{i+1}.png"
             frame.save(frame_path, "PNG")
             
-            self.status_var.set(f"Generated frame {i+1}/{frames}")
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
             
-    def generate_left_to_right_frames(self, original_img, output_dir, frames):
-        """Generate frames that grow from left to right"""
-        width = original_img.width
+    def generate_core_to_limbs_frames(self, original_img, output_dir, frames):
+        """Generate frames that grow from core (head+body) to limbs (arms+legs)"""
         base_name = Path(self.current_image_path).stem
+        body_parts = self.get_body_part_groups()
+        
+        # Define anatomical progression: core -> limbs
+        progression = [
+            body_parts['core'],  # head + body
+            body_parts['limbs']  # arms + legs
+        ]
         
         # Generate frame 0 (blank image)
         self.progress_var.set(0.05)
@@ -915,28 +996,45 @@ class MinecraftSkinAnimator:
             progress = (i + 1) / frames
             self.progress_var.set(0.1 + 0.8 * progress)
             
-            # Calculate how much of the image to show (from left)
-            visible_width = int(width * progress)
+            # Determine which body parts should be visible at this progress
+            visible_parts = []
             
-            # Create alpha mask
-            frame = self.create_alpha_mask(original_img)
-            pixels = frame.load()
+            # Calculate how many progression stages to show
+            stage_progress = progress * len(progression)
             
-            # Make pixels to the right of visible area transparent
-            for y in range(frame.height):
-                for x in range(visible_width, width):
-                    pixels[x, y] = (0, 0, 0, 0)  # Fully transparent
+            for stage_idx in range(len(progression)):
+                stage_start = stage_idx
+                stage_end = stage_idx + 1
+                
+                if stage_progress >= stage_end:
+                    # This stage is fully visible
+                    visible_parts.extend(progression[stage_idx])
+                elif stage_progress > stage_start:
+                    # This stage is partially visible
+                    partial_progress = stage_progress - stage_start
+                    parts_in_stage = progression[stage_idx]
+                    num_visible = int(len(parts_in_stage) * partial_progress)
+                    visible_parts.extend(parts_in_stage[:num_visible])
             
-            # Save frame with new naming scheme
+            # Create anatomical mask
+            frame = self.create_anatomical_mask(original_img, visible_parts)
+            
+            # Save frame
             frame_path = output_dir / f"{base_name}_{i+1}.png"
             frame.save(frame_path, "PNG")
             
-            self.status_var.set(f"Generated frame {i+1}/{frames}")
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
             
-    def generate_right_to_left_frames(self, original_img, output_dir, frames):
-        """Generate frames that grow from right to left"""
-        width = original_img.width
+    def generate_limbs_to_core_frames(self, original_img, output_dir, frames):
+        """Generate frames that grow from limbs (arms+legs) to core (head+body)"""
         base_name = Path(self.current_image_path).stem
+        body_parts = self.get_body_part_groups()
+        
+        # Define anatomical progression: limbs -> core
+        progression = [
+            body_parts['limbs'],  # arms + legs
+            body_parts['core']    # head + body
+        ]
         
         # Generate frame 0 (blank image)
         self.progress_var.set(0.05)
@@ -949,24 +1047,136 @@ class MinecraftSkinAnimator:
             progress = (i + 1) / frames
             self.progress_var.set(0.1 + 0.8 * progress)
             
-            # Calculate how much of the image to show (from right)
-            visible_width = int(width * progress)
-            start_col = width - visible_width
+            # Determine which body parts should be visible at this progress
+            visible_parts = []
             
-            # Create alpha mask
-            frame = self.create_alpha_mask(original_img)
-            pixels = frame.load()
+            # Calculate how many progression stages to show
+            stage_progress = progress * len(progression)
             
-            # Make pixels to the left of visible area transparent
-            for y in range(frame.height):
-                for x in range(start_col):
-                    pixels[x, y] = (0, 0, 0, 0)  # Fully transparent
+            for stage_idx in range(len(progression)):
+                stage_start = stage_idx
+                stage_end = stage_idx + 1
+                
+                if stage_progress >= stage_end:
+                    # This stage is fully visible
+                    visible_parts.extend(progression[stage_idx])
+                elif stage_progress > stage_start:
+                    # This stage is partially visible
+                    partial_progress = stage_progress - stage_start
+                    parts_in_stage = progression[stage_idx]
+                    num_visible = int(len(parts_in_stage) * partial_progress)
+                    visible_parts.extend(parts_in_stage[:num_visible])
             
-            # Save frame with new naming scheme
+            # Create anatomical mask
+            frame = self.create_anatomical_mask(original_img, visible_parts)
+            
+            # Save frame
             frame_path = output_dir / f"{base_name}_{i+1}.png"
             frame.save(frame_path, "PNG")
             
-            self.status_var.set(f"Generated frame {i+1}/{frames}")
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
+            
+    def generate_left_to_right_body_frames(self, original_img, output_dir, frames):
+        """Generate frames that grow from left side body parts to right side"""
+        base_name = Path(self.current_image_path).stem
+        body_parts = self.get_body_part_groups()
+        
+        # Define anatomical progression: left side -> right side
+        progression = [
+            body_parts['left_side'],
+            body_parts['right_side']
+        ]
+        
+        # Generate frame 0 (blank image)
+        self.progress_var.set(0.05)
+        blank_frame = Image.new('RGBA', (original_img.width, original_img.height), (0, 0, 0, 0))
+        frame_path = output_dir / f"{base_name}_0.png"
+        blank_frame.save(frame_path, "PNG")
+        self.status_var.set(f"Generated frame 0/{frames}")
+        
+        for i in range(frames):
+            progress = (i + 1) / frames
+            self.progress_var.set(0.1 + 0.8 * progress)
+            
+            # Determine which body parts should be visible at this progress
+            visible_parts = []
+            
+            # Calculate how many progression stages to show
+            stage_progress = progress * len(progression)
+            
+            for stage_idx in range(len(progression)):
+                stage_start = stage_idx
+                stage_end = stage_idx + 1
+                
+                if stage_progress >= stage_end:
+                    # This stage is fully visible
+                    visible_parts.extend(progression[stage_idx])
+                elif stage_progress > stage_start:
+                    # This stage is partially visible
+                    partial_progress = stage_progress - stage_start
+                    parts_in_stage = progression[stage_idx]
+                    num_visible = int(len(parts_in_stage) * partial_progress)
+                    visible_parts.extend(parts_in_stage[:num_visible])
+            
+            # Create anatomical mask
+            frame = self.create_anatomical_mask(original_img, visible_parts)
+            
+            # Save frame
+            frame_path = output_dir / f"{base_name}_{i+1}.png"
+            frame.save(frame_path, "PNG")
+            
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
+            
+    def generate_right_to_left_body_frames(self, original_img, output_dir, frames):
+        """Generate frames that grow from right side body parts to left side"""
+        base_name = Path(self.current_image_path).stem
+        body_parts = self.get_body_part_groups()
+        
+        # Define anatomical progression: right side -> left side
+        progression = [
+            body_parts['right_side'],
+            body_parts['left_side']
+        ]
+        
+        # Generate frame 0 (blank image)
+        self.progress_var.set(0.05)
+        blank_frame = Image.new('RGBA', (original_img.width, original_img.height), (0, 0, 0, 0))
+        frame_path = output_dir / f"{base_name}_0.png"
+        blank_frame.save(frame_path, "PNG")
+        self.status_var.set(f"Generated frame 0/{frames}")
+        
+        for i in range(frames):
+            progress = (i + 1) / frames
+            self.progress_var.set(0.1 + 0.8 * progress)
+            
+            # Determine which body parts should be visible at this progress
+            visible_parts = []
+            
+            # Calculate how many progression stages to show
+            stage_progress = progress * len(progression)
+            
+            for stage_idx in range(len(progression)):
+                stage_start = stage_idx
+                stage_end = stage_idx + 1
+                
+                if stage_progress >= stage_end:
+                    # This stage is fully visible
+                    visible_parts.extend(progression[stage_idx])
+                elif stage_progress > stage_start:
+                    # This stage is partially visible
+                    partial_progress = stage_progress - stage_start
+                    parts_in_stage = progression[stage_idx]
+                    num_visible = int(len(parts_in_stage) * partial_progress)
+                    visible_parts.extend(parts_in_stage[:num_visible])
+            
+            # Create anatomical mask
+            frame = self.create_anatomical_mask(original_img, visible_parts)
+            
+            # Save frame
+            frame_path = output_dir / f"{base_name}_{i+1}.png"
+            frame.save(frame_path, "PNG")
+            
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
     
     def scrub_animation(self, value):
         """Handle animation scrubbing via slider"""
