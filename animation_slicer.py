@@ -821,65 +821,382 @@ class MinecraftSkinAnimator:
         finally:
             self.generate_btn.configure(state="normal")
             
-    def create_alpha_mask(self, img):
-        """Create an alpha mask where non-transparent pixels become black"""
-        mask = img.copy()
-        pixels = mask.load()
-        
-        for y in range(mask.height):
-            for x in range(mask.width):
-                r, g, b, a = pixels[x, y]
-                if a > 0:  # If pixel is not transparent
-                    pixels[x, y] = (0, 0, 0, a)  # Make it black but keep alpha
-        
-        return mask
-    
-    def get_body_part_groups(self):
-        """Define body part groups for anatomical animations"""
-        return {
-            'head': [k for k in SKIN_UV_MAPPING.keys() if k.startswith('head')],
-            'body': [k for k in SKIN_UV_MAPPING.keys() if k.startswith('body')],
-            'arms': [k for k in SKIN_UV_MAPPING.keys() if 'arm' in k],
-            'legs': [k for k in SKIN_UV_MAPPING.keys() if 'leg' in k],
-            'left_side': [k for k in SKIN_UV_MAPPING.keys() if 'left' in k],
-            'right_side': [k for k in SKIN_UV_MAPPING.keys() if 'right' in k],
-            'core': [k for k in SKIN_UV_MAPPING.keys() if k.startswith('head') or k.startswith('body')],
-            'limbs': [k for k in SKIN_UV_MAPPING.keys() if 'arm' in k or 'leg' in k]
-        }
-    
-    def create_anatomical_mask(self, original_img, visible_parts):
-        """Create alpha mask showing only specified body parts"""
+    def create_pixel_growth_mask(self, original_img, progress, animation_type):
+        """Create alpha mask with pixel-by-pixel growth effect"""
         mask = Image.new('RGBA', (original_img.width, original_img.height), (0, 0, 0, 0))
         original_pixels = original_img.load()
         mask_pixels = mask.load()
         
-        # Copy pixels from visible body parts
-        for part_name in visible_parts:
+        if animation_type == "Head to Toe":
+            self.apply_head_to_toe_growth(original_pixels, mask_pixels, original_img, progress)
+        elif animation_type == "Toe to Head":
+            self.apply_toe_to_head_growth(original_pixels, mask_pixels, original_img, progress)
+        elif animation_type == "Core to Limbs":
+            self.apply_core_to_limbs_growth(original_pixels, mask_pixels, original_img, progress)
+        elif animation_type == "Limbs to Core":
+            self.apply_limbs_to_core_growth(original_pixels, mask_pixels, original_img, progress)
+        elif animation_type == "Left to Right Body":
+            self.apply_left_to_right_growth(original_pixels, mask_pixels, original_img, progress)
+        elif animation_type == "Right to Left Body":
+            self.apply_right_to_left_growth(original_pixels, mask_pixels, original_img, progress)
+        
+        return mask
+    
+    def apply_head_to_toe_growth(self, original_pixels, mask_pixels, original_img, progress):
+        """Apply head-to-toe pixel growth effect based on anatomical 3D positions"""
+        # Define anatomical order from head to toe with their UV regions
+        anatomical_order = [
+            # 1. Head top (very top of character)
+            ['head_top', 'head_outer_top'],
+            
+            # 2. Head middle (face level)
+            ['head_front', 'head_back', 'head_left', 'head_right', 
+             'head_outer_front', 'head_outer_back', 'head_outer_left', 'head_outer_right'],
+            
+            # 3. Head bottom / neck area
+            ['head_bottom', 'head_outer_bottom'],
+            
+            # 4. Shoulders / body top
+            ['body_top', 'body_outer_top'],
+            
+            # 5. Upper torso
+            ['body_front', 'body_back', 'body_left', 'body_right'],
+            
+            # 6. Upper arms (shoulder level)
+            ['right_arm_top', 'left_arm_top'],
+            
+            # 7. Mid torso + upper arms
+            ['body_outer_front', 'body_outer_back', 'body_outer_left', 'body_outer_right',
+             'right_arm_front', 'right_arm_back', 'right_arm_left', 'right_arm_right',
+             'left_arm_front', 'left_arm_back', 'left_arm_left', 'left_arm_right'],
+            
+            # 8. Lower torso / waist
+            ['body_bottom', 'body_outer_bottom'],
+            
+            # 9. Upper legs / hips
+            ['left_leg_top', 'right_leg_top'],
+            
+            # 10. Lower arms + upper legs
+            ['right_arm_bottom', 'left_arm_bottom',
+             'left_leg_front', 'left_leg_back', 'left_leg_left', 'left_leg_right',
+             'right_leg_front', 'right_leg_back', 'right_leg_left', 'right_leg_right'],
+            
+            # 11. Feet
+            ['left_leg_bottom', 'right_leg_bottom']
+        ]
+        
+        # Calculate which anatomical level we should grow to
+        num_levels = len(anatomical_order)
+        current_level = int(progress * num_levels)
+        level_progress = (progress * num_levels) - current_level
+        
+        # Copy pixels for all completed levels
+        for level in range(min(current_level + 1, num_levels)):
+            parts_at_level = anatomical_order[level]
+            
+            # If this is the current level being grown, apply partial growth
+            if level == current_level:
+                # For the current level, grow pixel by pixel within that level
+                self.apply_partial_level_growth(original_pixels, mask_pixels, original_img, 
+                                              parts_at_level, level_progress)
+            else:
+                # For completed levels, show all pixels
+                self.apply_full_level_growth(original_pixels, mask_pixels, original_img, parts_at_level)
+    
+    def apply_partial_level_growth(self, original_pixels, mask_pixels, original_img, parts, progress):
+        """Apply partial growth within a specific anatomical level"""
+        if not parts:
+            return
+            
+        # Collect all pixels from this level
+        level_pixels = []
+        for part_name in parts:
             if part_name in SKIN_UV_MAPPING:
                 x1, y1, x2, y2 = SKIN_UV_MAPPING[part_name]
-                
-                # Copy the region
                 for y in range(y1, min(y2, original_img.height)):
                     for x in range(x1, min(x2, original_img.width)):
                         if 0 <= x < original_img.width and 0 <= y < original_img.height:
                             r, g, b, a = original_pixels[x, y]
-                            if a > 0:  # Only copy non-transparent pixels
-                                mask_pixels[x, y] = (0, 0, 0, a)  # Black with original alpha
+                            if a > 0:  # Only include non-transparent pixels
+                                level_pixels.append((x, y, r, g, b, a))
         
-        return mask
+        # Sort pixels by Y coordinate (top to bottom growth within level)
+        level_pixels.sort(key=lambda pixel: (pixel[1], pixel[0]))  # Sort by Y ascending, then X
         
-    def generate_head_to_toe_frames(self, original_img, output_dir, frames):
-        """Generate frames that grow from head to toe anatomically"""
-        base_name = Path(self.current_image_path).stem
-        body_parts = self.get_body_part_groups()
-        
-        # Define anatomical progression: head -> body -> arms -> legs
-        progression = [
-            body_parts['head'],
-            body_parts['body'],
-            body_parts['arms'],
-            body_parts['legs']
+        # Apply pixels based on progress through this level
+        num_pixels_to_show = int(len(level_pixels) * progress)
+        for i in range(num_pixels_to_show):
+            x, y, r, g, b, a = level_pixels[i]
+            mask_pixels[x, y] = (0, 0, 0, a)
+    
+    def apply_full_level_growth(self, original_pixels, mask_pixels, original_img, parts):
+        """Apply full growth for a completed anatomical level"""
+        for part_name in parts:
+            if part_name in SKIN_UV_MAPPING:
+                x1, y1, x2, y2 = SKIN_UV_MAPPING[part_name]
+                for y in range(y1, min(y2, original_img.height)):
+                    for x in range(x1, min(x2, original_img.width)):
+                        if 0 <= x < original_img.width and 0 <= y < original_img.height:
+                            r, g, b, a = original_pixels[x, y]
+                            if a > 0:
+                                mask_pixels[x, y] = (0, 0, 0, a)
+    
+    def apply_toe_to_head_growth(self, original_pixels, mask_pixels, original_img, progress):
+        """Apply toe-to-head pixel growth effect based on anatomical 3D positions"""
+        # Define anatomical order from toe to head (reverse of head-to-toe)
+        anatomical_order = [
+            # 1. Feet
+            ['left_leg_bottom', 'right_leg_bottom'],
+            
+            # 2. Lower legs + lower arms
+            ['left_leg_front', 'left_leg_back', 'left_leg_left', 'left_leg_right',
+             'right_leg_front', 'right_leg_back', 'right_leg_left', 'right_leg_right',
+             'right_arm_bottom', 'left_arm_bottom'],
+            
+            # 3. Upper legs / hips
+            ['left_leg_top', 'right_leg_top'],
+            
+            # 4. Lower torso / waist
+            ['body_bottom', 'body_outer_bottom'],
+            
+            # 5. Mid torso + arms
+            ['body_outer_front', 'body_outer_back', 'body_outer_left', 'body_outer_right',
+             'right_arm_front', 'right_arm_back', 'right_arm_left', 'right_arm_right',
+             'left_arm_front', 'left_arm_back', 'left_arm_left', 'left_arm_right'],
+            
+            # 6. Upper arms (shoulder level)
+            ['right_arm_top', 'left_arm_top'],
+            
+            # 7. Upper torso
+            ['body_front', 'body_back', 'body_left', 'body_right'],
+            
+            # 8. Shoulders / body top
+            ['body_top', 'body_outer_top'],
+            
+            # 9. Head bottom / neck area
+            ['head_bottom', 'head_outer_bottom'],
+            
+            # 10. Head middle (face level)
+            ['head_front', 'head_back', 'head_left', 'head_right', 
+             'head_outer_front', 'head_outer_back', 'head_outer_left', 'head_outer_right'],
+            
+            # 11. Head top (very top of character)
+            ['head_top', 'head_outer_top']
         ]
+        
+        # Calculate which anatomical level we should grow to
+        num_levels = len(anatomical_order)
+        current_level = int(progress * num_levels)
+        level_progress = (progress * num_levels) - current_level
+        
+        # Copy pixels for all completed levels
+        for level in range(min(current_level + 1, num_levels)):
+            parts_at_level = anatomical_order[level]
+            
+            # If this is the current level being grown, apply partial growth
+            if level == current_level:
+                # For toe-to-head, grow from bottom up within each level
+                self.apply_partial_level_growth_reverse(original_pixels, mask_pixels, original_img, 
+                                                      parts_at_level, level_progress)
+            else:
+                # For completed levels, show all pixels
+                self.apply_full_level_growth(original_pixels, mask_pixels, original_img, parts_at_level)
+    
+    def apply_partial_level_growth_reverse(self, original_pixels, mask_pixels, original_img, parts, progress):
+        """Apply partial growth within a level, but from bottom up"""
+        if not parts:
+            return
+            
+        # Collect all pixels from this level
+        level_pixels = []
+        for part_name in parts:
+            if part_name in SKIN_UV_MAPPING:
+                x1, y1, x2, y2 = SKIN_UV_MAPPING[part_name]
+                for y in range(y1, min(y2, original_img.height)):
+                    for x in range(x1, min(x2, original_img.width)):
+                        if 0 <= x < original_img.width and 0 <= y < original_img.height:
+                            r, g, b, a = original_pixels[x, y]
+                            if a > 0:
+                                level_pixels.append((x, y, r, g, b, a))
+        
+        # Sort pixels by Y coordinate (bottom to top growth within level)
+        level_pixels.sort(key=lambda pixel: (-pixel[1], pixel[0]))  # Sort by Y descending, then X
+        
+        # Apply pixels based on progress through this level
+        num_pixels_to_show = int(len(level_pixels) * progress)
+        for i in range(num_pixels_to_show):
+            x, y, r, g, b, a = level_pixels[i]
+            mask_pixels[x, y] = (0, 0, 0, a)
+    
+    def apply_core_to_limbs_growth(self, original_pixels, mask_pixels, original_img, progress):
+        """Apply core-to-limbs growth based on anatomical distance from torso center"""
+        # Define core parts (torso and head)
+        core_parts = ['head_front', 'head_back', 'head_left', 'head_right', 'head_top', 'head_bottom',
+                     'head_outer_front', 'head_outer_back', 'head_outer_left', 'head_outer_right', 
+                     'head_outer_top', 'head_outer_bottom',
+                     'body_front', 'body_back', 'body_left', 'body_right', 'body_top', 'body_bottom',
+                     'body_outer_front', 'body_outer_back', 'body_outer_left', 'body_outer_right', 
+                     'body_outer_top', 'body_outer_bottom']
+        
+        # Define limb parts (arms and legs)
+        limb_parts = ['right_arm_front', 'right_arm_back', 'right_arm_left', 'right_arm_right', 'right_arm_top', 'right_arm_bottom',
+                     'left_arm_front', 'left_arm_back', 'left_arm_left', 'left_arm_right', 'left_arm_top', 'left_arm_bottom',
+                     'left_leg_front', 'left_leg_back', 'left_leg_left', 'left_leg_right', 'left_leg_top', 'left_leg_bottom',
+                     'right_leg_front', 'right_leg_back', 'right_leg_left', 'right_leg_right', 'right_leg_top', 'right_leg_bottom']
+        
+        # At 50% progress, core should be complete, limbs start
+        if progress <= 0.5:
+            # First half: grow core parts
+            core_progress = progress * 2.0  # Scale to 0-1
+            self.apply_partial_level_growth(original_pixels, mask_pixels, original_img, core_parts, core_progress)
+        else:
+            # Second half: core complete, grow limbs
+            self.apply_full_level_growth(original_pixels, mask_pixels, original_img, core_parts)
+            limb_progress = (progress - 0.5) * 2.0  # Scale to 0-1
+            self.apply_partial_level_growth(original_pixels, mask_pixels, original_img, limb_parts, limb_progress)
+    
+    def apply_limbs_to_core_growth(self, original_pixels, mask_pixels, original_img, progress):
+        """Apply limbs-to-core growth (reverse of core-to-limbs)"""
+        # Define core parts and limb parts
+        core_parts = ['head_front', 'head_back', 'head_left', 'head_right', 'head_top', 'head_bottom',
+                     'head_outer_front', 'head_outer_back', 'head_outer_left', 'head_outer_right', 
+                     'head_outer_top', 'head_outer_bottom',
+                     'body_front', 'body_back', 'body_left', 'body_right', 'body_top', 'body_bottom',
+                     'body_outer_front', 'body_outer_back', 'body_outer_left', 'body_outer_right', 
+                     'body_outer_top', 'body_outer_bottom']
+        
+        limb_parts = ['right_arm_front', 'right_arm_back', 'right_arm_left', 'right_arm_right', 'right_arm_top', 'right_arm_bottom',
+                     'left_arm_front', 'left_arm_back', 'left_arm_left', 'left_arm_right', 'left_arm_top', 'left_arm_bottom',
+                     'left_leg_front', 'left_leg_back', 'left_leg_left', 'left_leg_right', 'left_leg_top', 'left_leg_bottom',
+                     'right_leg_front', 'right_leg_back', 'right_leg_left', 'right_leg_right', 'right_leg_top', 'right_leg_bottom']
+        
+        # At 50% progress, limbs should be complete, core starts
+        if progress <= 0.5:
+            # First half: grow limbs
+            limb_progress = progress * 2.0
+            self.apply_partial_level_growth(original_pixels, mask_pixels, original_img, limb_parts, limb_progress)
+        else:
+            # Second half: limbs complete, grow core
+            self.apply_full_level_growth(original_pixels, mask_pixels, original_img, limb_parts)
+            core_progress = (progress - 0.5) * 2.0
+            self.apply_partial_level_growth(original_pixels, mask_pixels, original_img, core_parts, core_progress)
+    
+    def apply_left_to_right_growth(self, original_pixels, mask_pixels, original_img, progress):
+        """Apply left-to-right growth based on anatomical left-to-right body positioning"""
+        # Define anatomical order from left to right side of body
+        anatomical_order = [
+            # 1. Left side parts
+            ['left_leg_front', 'left_leg_back', 'left_leg_left', 'left_leg_right', 'left_leg_top', 'left_leg_bottom',
+             'left_arm_front', 'left_arm_back', 'left_arm_left', 'left_arm_right', 'left_arm_top', 'left_arm_bottom'],
+            
+            # 2. Center parts (head and body)
+            ['head_front', 'head_back', 'head_top', 'head_bottom',
+             'head_outer_front', 'head_outer_back', 'head_outer_top', 'head_outer_bottom',
+             'body_front', 'body_back', 'body_top', 'body_bottom',
+             'body_outer_front', 'body_outer_back', 'body_outer_top', 'body_outer_bottom'],
+            
+            # 3. Left side faces of center parts
+            ['head_left', 'head_outer_left', 'body_left', 'body_outer_left'],
+            
+            # 4. Right side faces of center parts
+            ['head_right', 'head_outer_right', 'body_right', 'body_outer_right'],
+            
+            # 5. Right side parts
+            ['right_arm_front', 'right_arm_back', 'right_arm_left', 'right_arm_right', 'right_arm_top', 'right_arm_bottom',
+             'right_leg_front', 'right_leg_back', 'right_leg_left', 'right_leg_right', 'right_leg_top', 'right_leg_bottom']
+        ]
+        
+        # Calculate which anatomical level we should grow to
+        num_levels = len(anatomical_order)
+        current_level = int(progress * num_levels)
+        level_progress = (progress * num_levels) - current_level
+        
+        # Copy pixels for all completed levels
+        for level in range(min(current_level + 1, num_levels)):
+            parts_at_level = anatomical_order[level]
+            
+            # If this is the current level being grown, apply partial growth
+            if level == current_level:
+                self.apply_partial_level_growth_horizontal(original_pixels, mask_pixels, original_img, 
+                                                         parts_at_level, level_progress, left_to_right=True)
+            else:
+                # For completed levels, show all pixels
+                self.apply_full_level_growth(original_pixels, mask_pixels, original_img, parts_at_level)
+    
+    def apply_right_to_left_growth(self, original_pixels, mask_pixels, original_img, progress):
+        """Apply right-to-left growth based on anatomical right-to-left body positioning"""
+        # Define anatomical order from right to left side of body (reverse of left-to-right)
+        anatomical_order = [
+            # 1. Right side parts
+            ['right_arm_front', 'right_arm_back', 'right_arm_left', 'right_arm_right', 'right_arm_top', 'right_arm_bottom',
+             'right_leg_front', 'right_leg_back', 'right_leg_left', 'right_leg_right', 'right_leg_top', 'right_leg_bottom'],
+            
+            # 2. Right side faces of center parts
+            ['head_right', 'head_outer_right', 'body_right', 'body_outer_right'],
+            
+            # 3. Left side faces of center parts
+            ['head_left', 'head_outer_left', 'body_left', 'body_outer_left'],
+            
+            # 4. Center parts (head and body)
+            ['head_front', 'head_back', 'head_top', 'head_bottom',
+             'head_outer_front', 'head_outer_back', 'head_outer_top', 'head_outer_bottom',
+             'body_front', 'body_back', 'body_top', 'body_bottom',
+             'body_outer_front', 'body_outer_back', 'body_outer_top', 'body_outer_bottom'],
+            
+            # 5. Left side parts
+            ['left_leg_front', 'left_leg_back', 'left_leg_left', 'left_leg_right', 'left_leg_top', 'left_leg_bottom',
+             'left_arm_front', 'left_arm_back', 'left_arm_left', 'left_arm_right', 'left_arm_top', 'left_arm_bottom']
+        ]
+        
+        # Calculate which anatomical level we should grow to
+        num_levels = len(anatomical_order)
+        current_level = int(progress * num_levels)
+        level_progress = (progress * num_levels) - current_level
+        
+        # Copy pixels for all completed levels
+        for level in range(min(current_level + 1, num_levels)):
+            parts_at_level = anatomical_order[level]
+            
+            # If this is the current level being grown, apply partial growth
+            if level == current_level:
+                self.apply_partial_level_growth_horizontal(original_pixels, mask_pixels, original_img, 
+                                                         parts_at_level, level_progress, left_to_right=False)
+            else:
+                # For completed levels, show all pixels
+                self.apply_full_level_growth(original_pixels, mask_pixels, original_img, parts_at_level)
+    
+    def apply_partial_level_growth_horizontal(self, original_pixels, mask_pixels, original_img, parts, progress, left_to_right=True):
+        """Apply partial growth within a level, growing horizontally"""
+        if not parts:
+            return
+            
+        # Collect all pixels from this level
+        level_pixels = []
+        for part_name in parts:
+            if part_name in SKIN_UV_MAPPING:
+                x1, y1, x2, y2 = SKIN_UV_MAPPING[part_name]
+                for y in range(y1, min(y2, original_img.height)):
+                    for x in range(x1, min(x2, original_img.width)):
+                        if 0 <= x < original_img.width and 0 <= y < original_img.height:
+                            r, g, b, a = original_pixels[x, y]
+                            if a > 0:  # Only include non-transparent pixels
+                                level_pixels.append((x, y, r, g, b, a))
+        
+        # Sort pixels by X coordinate (left to right or right to left growth within level)
+        if left_to_right:
+            level_pixels.sort(key=lambda pixel: (pixel[0], pixel[1]))  # Sort by X ascending, then Y
+        else:
+            level_pixels.sort(key=lambda pixel: (-pixel[0], pixel[1]))  # Sort by X descending, then Y
+        
+        # Apply pixels based on progress through this level
+        num_pixels_to_show = int(len(level_pixels) * progress)
+        for i in range(num_pixels_to_show):
+            x, y, r, g, b, a = level_pixels[i]
+            mask_pixels[x, y] = (0, 0, 0, a)
+    
+    def generate_head_to_toe_frames(self, original_img, output_dir, frames):
+        """Generate frames that grow from head to toe pixel by pixel"""
+        base_name = Path(self.current_image_path).stem
         
         # Generate frame 0 (blank image)
         self.progress_var.set(0.05)
@@ -892,47 +1209,18 @@ class MinecraftSkinAnimator:
             progress = (i + 1) / frames
             self.progress_var.set(0.1 + 0.8 * progress)
             
-            # Determine which body parts should be visible at this progress
-            visible_parts = []
-            
-            # Calculate how many progression stages to show
-            stage_progress = progress * len(progression)
-            
-            for stage_idx in range(len(progression)):
-                stage_start = stage_idx
-                stage_end = stage_idx + 1
-                
-                if stage_progress >= stage_end:
-                    # This stage is fully visible
-                    visible_parts.extend(progression[stage_idx])
-                elif stage_progress > stage_start:
-                    # This stage is partially visible
-                    partial_progress = stage_progress - stage_start
-                    parts_in_stage = progression[stage_idx]
-                    num_visible = int(len(parts_in_stage) * partial_progress)
-                    visible_parts.extend(parts_in_stage[:num_visible])
-            
-            # Create anatomical mask
-            frame = self.create_anatomical_mask(original_img, visible_parts)
+            # Create pixel growth mask
+            frame = self.create_pixel_growth_mask(original_img, progress, "Head to Toe")
             
             # Save frame
             frame_path = output_dir / f"{base_name}_{i+1}.png"
             frame.save(frame_path, "PNG")
             
-            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Growth: {int(progress*100)}%")
             
     def generate_toe_to_head_frames(self, original_img, output_dir, frames):
-        """Generate frames that grow from toe to head anatomically"""
+        """Generate frames that grow from toe to head pixel by pixel"""
         base_name = Path(self.current_image_path).stem
-        body_parts = self.get_body_part_groups()
-        
-        # Define anatomical progression: legs -> arms -> body -> head
-        progression = [
-            body_parts['legs'],
-            body_parts['arms'],
-            body_parts['body'],
-            body_parts['head']
-        ]
         
         # Generate frame 0 (blank image)
         self.progress_var.set(0.05)
@@ -945,45 +1233,18 @@ class MinecraftSkinAnimator:
             progress = (i + 1) / frames
             self.progress_var.set(0.1 + 0.8 * progress)
             
-            # Determine which body parts should be visible at this progress
-            visible_parts = []
-            
-            # Calculate how many progression stages to show
-            stage_progress = progress * len(progression)
-            
-            for stage_idx in range(len(progression)):
-                stage_start = stage_idx
-                stage_end = stage_idx + 1
-                
-                if stage_progress >= stage_end:
-                    # This stage is fully visible
-                    visible_parts.extend(progression[stage_idx])
-                elif stage_progress > stage_start:
-                    # This stage is partially visible
-                    partial_progress = stage_progress - stage_start
-                    parts_in_stage = progression[stage_idx]
-                    num_visible = int(len(parts_in_stage) * partial_progress)
-                    visible_parts.extend(parts_in_stage[:num_visible])
-            
-            # Create anatomical mask
-            frame = self.create_anatomical_mask(original_img, visible_parts)
+            # Create pixel growth mask
+            frame = self.create_pixel_growth_mask(original_img, progress, "Toe to Head")
             
             # Save frame
             frame_path = output_dir / f"{base_name}_{i+1}.png"
             frame.save(frame_path, "PNG")
             
-            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Growth: {int(progress*100)}%")
             
     def generate_core_to_limbs_frames(self, original_img, output_dir, frames):
-        """Generate frames that grow from core (head+body) to limbs (arms+legs)"""
+        """Generate frames that grow from core to limbs pixel by pixel"""
         base_name = Path(self.current_image_path).stem
-        body_parts = self.get_body_part_groups()
-        
-        # Define anatomical progression: core -> limbs
-        progression = [
-            body_parts['core'],  # head + body
-            body_parts['limbs']  # arms + legs
-        ]
         
         # Generate frame 0 (blank image)
         self.progress_var.set(0.05)
@@ -996,45 +1257,18 @@ class MinecraftSkinAnimator:
             progress = (i + 1) / frames
             self.progress_var.set(0.1 + 0.8 * progress)
             
-            # Determine which body parts should be visible at this progress
-            visible_parts = []
-            
-            # Calculate how many progression stages to show
-            stage_progress = progress * len(progression)
-            
-            for stage_idx in range(len(progression)):
-                stage_start = stage_idx
-                stage_end = stage_idx + 1
-                
-                if stage_progress >= stage_end:
-                    # This stage is fully visible
-                    visible_parts.extend(progression[stage_idx])
-                elif stage_progress > stage_start:
-                    # This stage is partially visible
-                    partial_progress = stage_progress - stage_start
-                    parts_in_stage = progression[stage_idx]
-                    num_visible = int(len(parts_in_stage) * partial_progress)
-                    visible_parts.extend(parts_in_stage[:num_visible])
-            
-            # Create anatomical mask
-            frame = self.create_anatomical_mask(original_img, visible_parts)
+            # Create pixel growth mask
+            frame = self.create_pixel_growth_mask(original_img, progress, "Core to Limbs")
             
             # Save frame
             frame_path = output_dir / f"{base_name}_{i+1}.png"
             frame.save(frame_path, "PNG")
             
-            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Growth: {int(progress*100)}%")
             
     def generate_limbs_to_core_frames(self, original_img, output_dir, frames):
-        """Generate frames that grow from limbs (arms+legs) to core (head+body)"""
+        """Generate frames that grow from limbs to core pixel by pixel"""
         base_name = Path(self.current_image_path).stem
-        body_parts = self.get_body_part_groups()
-        
-        # Define anatomical progression: limbs -> core
-        progression = [
-            body_parts['limbs'],  # arms + legs
-            body_parts['core']    # head + body
-        ]
         
         # Generate frame 0 (blank image)
         self.progress_var.set(0.05)
@@ -1047,45 +1281,18 @@ class MinecraftSkinAnimator:
             progress = (i + 1) / frames
             self.progress_var.set(0.1 + 0.8 * progress)
             
-            # Determine which body parts should be visible at this progress
-            visible_parts = []
-            
-            # Calculate how many progression stages to show
-            stage_progress = progress * len(progression)
-            
-            for stage_idx in range(len(progression)):
-                stage_start = stage_idx
-                stage_end = stage_idx + 1
-                
-                if stage_progress >= stage_end:
-                    # This stage is fully visible
-                    visible_parts.extend(progression[stage_idx])
-                elif stage_progress > stage_start:
-                    # This stage is partially visible
-                    partial_progress = stage_progress - stage_start
-                    parts_in_stage = progression[stage_idx]
-                    num_visible = int(len(parts_in_stage) * partial_progress)
-                    visible_parts.extend(parts_in_stage[:num_visible])
-            
-            # Create anatomical mask
-            frame = self.create_anatomical_mask(original_img, visible_parts)
+            # Create pixel growth mask
+            frame = self.create_pixel_growth_mask(original_img, progress, "Limbs to Core")
             
             # Save frame
             frame_path = output_dir / f"{base_name}_{i+1}.png"
             frame.save(frame_path, "PNG")
             
-            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Growth: {int(progress*100)}%")
             
     def generate_left_to_right_body_frames(self, original_img, output_dir, frames):
-        """Generate frames that grow from left side body parts to right side"""
+        """Generate frames that grow from left to right pixel by pixel"""
         base_name = Path(self.current_image_path).stem
-        body_parts = self.get_body_part_groups()
-        
-        # Define anatomical progression: left side -> right side
-        progression = [
-            body_parts['left_side'],
-            body_parts['right_side']
-        ]
         
         # Generate frame 0 (blank image)
         self.progress_var.set(0.05)
@@ -1098,45 +1305,18 @@ class MinecraftSkinAnimator:
             progress = (i + 1) / frames
             self.progress_var.set(0.1 + 0.8 * progress)
             
-            # Determine which body parts should be visible at this progress
-            visible_parts = []
-            
-            # Calculate how many progression stages to show
-            stage_progress = progress * len(progression)
-            
-            for stage_idx in range(len(progression)):
-                stage_start = stage_idx
-                stage_end = stage_idx + 1
-                
-                if stage_progress >= stage_end:
-                    # This stage is fully visible
-                    visible_parts.extend(progression[stage_idx])
-                elif stage_progress > stage_start:
-                    # This stage is partially visible
-                    partial_progress = stage_progress - stage_start
-                    parts_in_stage = progression[stage_idx]
-                    num_visible = int(len(parts_in_stage) * partial_progress)
-                    visible_parts.extend(parts_in_stage[:num_visible])
-            
-            # Create anatomical mask
-            frame = self.create_anatomical_mask(original_img, visible_parts)
+            # Create pixel growth mask
+            frame = self.create_pixel_growth_mask(original_img, progress, "Left to Right Body")
             
             # Save frame
             frame_path = output_dir / f"{base_name}_{i+1}.png"
             frame.save(frame_path, "PNG")
             
-            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Growth: {int(progress*100)}%")
             
     def generate_right_to_left_body_frames(self, original_img, output_dir, frames):
-        """Generate frames that grow from right side body parts to left side"""
+        """Generate frames that grow from right to left pixel by pixel"""
         base_name = Path(self.current_image_path).stem
-        body_parts = self.get_body_part_groups()
-        
-        # Define anatomical progression: right side -> left side
-        progression = [
-            body_parts['right_side'],
-            body_parts['left_side']
-        ]
         
         # Generate frame 0 (blank image)
         self.progress_var.set(0.05)
@@ -1149,34 +1329,14 @@ class MinecraftSkinAnimator:
             progress = (i + 1) / frames
             self.progress_var.set(0.1 + 0.8 * progress)
             
-            # Determine which body parts should be visible at this progress
-            visible_parts = []
-            
-            # Calculate how many progression stages to show
-            stage_progress = progress * len(progression)
-            
-            for stage_idx in range(len(progression)):
-                stage_start = stage_idx
-                stage_end = stage_idx + 1
-                
-                if stage_progress >= stage_end:
-                    # This stage is fully visible
-                    visible_parts.extend(progression[stage_idx])
-                elif stage_progress > stage_start:
-                    # This stage is partially visible
-                    partial_progress = stage_progress - stage_start
-                    parts_in_stage = progression[stage_idx]
-                    num_visible = int(len(parts_in_stage) * partial_progress)
-                    visible_parts.extend(parts_in_stage[:num_visible])
-            
-            # Create anatomical mask
-            frame = self.create_anatomical_mask(original_img, visible_parts)
+            # Create pixel growth mask
+            frame = self.create_pixel_growth_mask(original_img, progress, "Right to Left Body")
             
             # Save frame
             frame_path = output_dir / f"{base_name}_{i+1}.png"
             frame.save(frame_path, "PNG")
             
-            self.status_var.set(f"Generated frame {i+1}/{frames} - Parts: {len(visible_parts)}")
+            self.status_var.set(f"Generated frame {i+1}/{frames} - Growth: {int(progress*100)}%")
     
     def scrub_animation(self, value):
         """Handle animation scrubbing via slider"""
